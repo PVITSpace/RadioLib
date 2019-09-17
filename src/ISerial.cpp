@@ -9,7 +9,11 @@ void ISerial::begin(long speed) {
 }
 
 bool ISerial::listen() {
+#if defined ( ESP32 )  || defined (SAMD_SERIES) || defined (ARDUINO_ARCH_STM32)
+  return true;
+#else
   return(_mod->ModuleSerial->listen());
+#endif
 }
 
 void ISerial::end() {
@@ -17,15 +21,27 @@ void ISerial::end() {
 }
 
 bool ISerial::isListening() {
+#if defined( ESP32 ) || defined ( SAMD_SERIES ) || defined (ARDUINO_ARCH_STM32)
+  return true;
+#else
   return(_mod->ModuleSerial->isListening());
+#endif
 }
 
 bool ISerial::stopListening() {
+#if defined( ESP32 ) || defined ( SAMD_SERIES ) || defined (ARDUINO_ARCH_STM32)
+  return true;
+#else
   return(_mod->ModuleSerial->stopListening());
+#endif
 }
 
 bool ISerial::overflow() {
+#if defined( ESP32 ) || defined ( SAMD_SERIES ) || defined (ARDUINO_ARCH_STM32)
+  return false;
+#else
   return(_mod->ModuleSerial->overflow());
+#endif
 }
 
 int ISerial::peek() {
@@ -139,4 +155,3 @@ size_t ISerial::println(const Printable& x) {
 size_t ISerial::println(void) {
   return(_mod->ModuleSerial->println());
 }
-  

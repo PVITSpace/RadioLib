@@ -9,6 +9,7 @@
 // SX126X physical layer properties
 #define SX126X_CRYSTAL_FREQ                           32.0
 #define SX126X_DIV_EXPONENT                           25
+#define SX126X_MAX_PACKET_LENGTH                      255
 
 // SX126X SPI commands
 // operational modes commands
@@ -150,7 +151,6 @@
 
 //SX126X_CMD_SET_PA_CONFIG
 #define SX126X_PA_CONFIG_HP_MAX                       0x07
-#define SX126X_PA_CONFIG_SX1268                       0x01
 #define SX126X_PA_CONFIG_PA_LUT                       0x01
 
 //SX126X_CMD_SET_RX_TX_FALLBACK_MODE
@@ -351,11 +351,13 @@ class SX126x: public PhysicalLayer {
 
       \param syncWord 2-byte LoRa sync word.
 
+      \param currentLimit Current protection limit in mA.
+
       \param preambleLength LoRa preamble length in symbols. Allowed values range from 1 to 65535.
 
       \returns \ref status_codes
     */
-    int16_t begin(float bw, uint8_t sf, uint8_t cr, uint16_t syncWord, uint16_t preambleLength);
+    int16_t begin(float bw, uint8_t sf, uint8_t cr, uint16_t syncWord, float currentLimit, uint16_t preambleLength);
 
     /*!
       \brief Initialization method for FSK modem.
@@ -366,13 +368,15 @@ class SX126x: public PhysicalLayer {
 
       \param rxBw Receiver bandwidth in kHz. Allowed values are 4.8, 5.8, 7.3, 9.7, 11.7, 14.6, 19.5, 23.4, 29.3, 39.0, 46.9, 58.6, 78.2, 93.8, 117.3, 156.2, 187.2, 234.3, 312.0, 373.6 and 467.0 kHz.
 
-      \parma preambleLength FSK preamble length in bits. Allowed values range from 0 to 65535.
+      \param currentLimit Current protection limit in mA.
+
+      \param preambleLength FSK preamble length in bits. Allowed values range from 0 to 65535.
 
       \param dataShaping Time-bandwidth product of the Gaussian filter to be used for shaping. Allowed values are 0.3, 0.5, 0.7 and 1.0. Set to 0 to disable shaping.
 
       \returns \ref status_codes
     */
-    int16_t beginFSK(float br, float freqDev, float rxBw, uint16_t preambleLength, float dataShaping);
+    int16_t beginFSK(float br, float freqDev, float rxBw, float currentLimit, uint16_t preambleLength, float dataShaping);
 
     /*!
       \brief Blocking binary transmit method.
@@ -601,6 +605,17 @@ class SX126x: public PhysicalLayer {
     int16_t setSyncWord(uint8_t* syncWord, uint8_t len);
 
     /*!
+      \brief Sets FSK sync word in the form of array of up to 8 bytes.
+
+      \param syncWord FSK sync word to be set.
+
+      \param bitsLen FSK sync word length in bits. If length is not divisible by 8, least significant bits of syncWord will be ignored.
+
+      \returns \ref status_codes
+    */
+    int16_t setSyncBits(uint8_t *syncWord, uint8_t bitsLen);
+
+    /*!
       \brief Sets node address. Calling this method will also enable address filtering for node address only.
 
       \param nodeAddr Node address to be set.
@@ -626,24 +641,15 @@ class SX126x: public PhysicalLayer {
     int16_t disableAddressFiltering();
 
     /*!
-      \brief Sets LoRa CRC.
+      \brief Sets CRC configuration.
 
-      \param enableCRC Enable or disable LoRa CRC.
+      \param len CRC length in bytes, Allowed values are 1 or 2, set to 0 to disable CRC.
 
-      \returns \ref status_codes
-    */
-    int16_t setCRC(bool enableCRC);
+      \param initial Initial CRC value. FSK only. Defaults to 0x1D0F (CCIT CRC).
 
-    /*!
-      \brief Sets FSK CRC configuration.
+      \param polynomial Polynomial for CRC calculation. FSK only. Defaults to 0x1021 (CCIT CRC).
 
-      \param len CRC length in bytes, Allowed values are 1 or 2, set to 0 to disable FSK CRC.
-
-      \param initial Initial CRC value. Defaults to 0x1D0F (CCIT CRC).
-
-      \param polynomial Polynomial for CRC calculation. Defaults to 0x1021 (CCIT CRC).
-
-      \param inverted Invert CRC bytes. Defaults to true (CCIT CRC)
+      \param inverted Invert CRC bytes. FSK only. Defaults to true (CCIT CRC).
 
       \returns \ref status_codes
     */
@@ -657,6 +663,13 @@ class SX126x: public PhysicalLayer {
       \param TCXO timeout in us. Defaults to 5000 us.
     */
     int16_t setTCXO(float voltage, uint32_t timeout = 5000);
+
+    /*!
+      \brief Set DIO2 to function as RF switch (default in Semtech example designs).
+
+      \returns \ref status_codes
+    */
+    int16_t setDio2AsRfSwitch(bool enable = true);
 
     /*!
       \brief Gets effective data rate for the last transmitted packet. The value is calculated only for payload bytes.
@@ -679,6 +692,24 @@ class SX126x: public PhysicalLayer {
     */
     float getSNR();
 
+     /*!
+      \brief Query modem for the packet length of received payload.
+
+      \param update Update received packet length. Will return cached value when set to false.
+
+      \returns Length of last received packet in bytes.
+    */
+    size_t getPacketLength(bool update = true);
+
+    /*!
+     \brief Get expected time-on-air for a given size of payload
+
+     \param len Payload length in bytes.
+
+     \returns Expected time-on-air in microseconds.
+   */
+   uint32_t getTimeOnAir(size_t len);
+
   protected:
     // SX1276x SPI command implementations
     int16_t setTx(uint32_t timeout = 0);
@@ -686,12 +717,14 @@ class SX126x: public PhysicalLayer {
     int16_t setCad();
     int16_t setPaConfig(uint8_t paDutyCycle, uint8_t deviceSel, uint8_t hpMax = SX126X_PA_CONFIG_HP_MAX, uint8_t paLut = SX126X_PA_CONFIG_PA_LUT);
     int16_t writeRegister(uint16_t addr, uint8_t* data, uint8_t numBytes);
+    int16_t readRegister(uint16_t addr, uint8_t* data, uint8_t numBytes);
     int16_t writeBuffer(uint8_t* data, uint8_t numBytes, uint8_t offset = 0x00);
     int16_t readBuffer(uint8_t* data, uint8_t numBytes);
     int16_t setDioIrqParams(uint16_t irqMask, uint16_t dio1Mask, uint16_t dio2Mask = SX126X_IRQ_NONE, uint16_t dio3Mask = SX126X_IRQ_NONE);
     uint16_t getIrqStatus();
     int16_t clearIrqStatus(uint16_t clearIrqParams = SX126X_IRQ_ALL);
     int16_t setRfFrequency(uint32_t frf);
+    int16_t calibrateImage(uint8_t* data);
     uint8_t getPacketType();
     int16_t setTxParams(uint8_t power, uint8_t rampTime = SX126X_PA_RAMP_200U);
     int16_t setModulationParams(uint8_t sf, uint8_t bw, uint8_t cr, uint8_t ldro = 0xFF);
@@ -704,7 +737,7 @@ class SX126x: public PhysicalLayer {
     uint16_t getDeviceErrors();
     int16_t clearDeviceErrors();
 
-    int16_t setFrequencyRaw(float freq, bool calibrate = true);
+    int16_t setFrequencyRaw(float freq);
 
   private:
     Module* _mod;
@@ -725,7 +758,7 @@ class SX126x: public PhysicalLayer {
     // common low-level SPI interface
     int16_t SPIwriteCommand(uint8_t cmd, uint8_t* data, uint8_t numBytes, bool waitForBusy = true);
     int16_t SPIreadCommand(uint8_t cmd, uint8_t* data, uint8_t numBytes, bool waitForBusy = true);
-    int16_t SPItransfer(uint8_t cmd, bool write, uint8_t* dataOut, uint8_t* dataIn, uint8_t numBytes, bool waitForBusy);
+    int16_t SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* dataOut, uint8_t* dataIn, uint8_t numBytes, bool waitForBusy, uint32_t timeout = 5000);
 };
 
 #endif

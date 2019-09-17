@@ -1,13 +1,17 @@
 #include "Module.h"
 
-Module::Module(int rx, int tx) {
+Module::Module(int rx, int tx, HardwareSerial* useSer) {
   _cs = -1;
   _rx = rx;
   _tx = tx;
   _int0 = -1;
   _int1 = -1;
 
+#if defined(ESP32) || defined(SAMD_SERIES) || defined (ARDUINO_ARCH_STM32)
+    ModuleSerial = useSer;
+#else
   ModuleSerial = new SoftwareSerial(_rx, _tx);
+#endif
 }
 
 Module::Module(int cs, int int0, int int1, SPIClass& spi, SPISettings spiSettings) {
@@ -20,7 +24,7 @@ Module::Module(int cs, int int0, int int1, SPIClass& spi, SPISettings spiSetting
   _spiSettings = spiSettings;
 }
 
-Module::Module(int cs, int int0, int int1, int rx, int tx, SPIClass& spi, SPISettings spiSettings) {
+Module::Module(int cs, int int0, int int1, int rx, int tx, SPIClass& spi, SPISettings spiSettings, HardwareSerial* useSer) {
   _cs = cs;
   _rx = rx;
   _tx = tx;
@@ -29,7 +33,11 @@ Module::Module(int cs, int int0, int int1, int rx, int tx, SPIClass& spi, SPISet
   _spi = &spi;
   _spiSettings = spiSettings;
 
+#if defined(ESP32) || defined(SAMD_SERIES) || defined (ARDUINO_ARCH_STM32)
+  ModuleSerial = useSer;
+#else
   ModuleSerial = new SoftwareSerial(_rx, _tx);
+#endif
 }
 
 Module::Module(int cs, int int0, int int1, int int2, SPIClass& spi, SPISettings spiSettings) {
@@ -51,7 +59,11 @@ void Module::init(uint8_t interface, uint8_t gpio) {
       _spi->begin();
       break;
     case USE_UART:
+#if defined(ESP32)
+      ModuleSerial->begin(baudrate, SERIAL_8N1, _rx, _tx);
+#else
       ModuleSerial->begin(baudrate);
+#endif
       break;
     case USE_I2C:
       break;
@@ -207,17 +219,30 @@ void Module::SPItransfer(uint8_t cmd, uint8_t reg, uint8_t* dataOut, uint8_t* da
 
   // send SPI register address with access command
   _spi->transfer(reg | cmd);
+  DEBUG_PRINT(reg | cmd, HEX);
+  DEBUG_PRINT('\t');
+  DEBUG_PRINT(reg | cmd, BIN);
+  DEBUG_PRINT('\t');
 
   // send data or get response
   if(cmd == SPIwriteCommand) {
     for(size_t n = 0; n < numBytes; n++) {
       _spi->transfer(dataOut[n]);
+      DEBUG_PRINT(dataOut[n], HEX);
+      DEBUG_PRINT('\t');
+      DEBUG_PRINT(dataOut[n], BIN);
+      DEBUG_PRINT('\t');
     }
   } else if (cmd == SPIreadCommand) {
     for(size_t n = 0; n < numBytes; n++) {
       dataIn[n] = _spi->transfer(0x00);
+      DEBUG_PRINT(dataIn[n], HEX);
+      DEBUG_PRINT('\t');
+      DEBUG_PRINT(dataIn[n], BIN);
+      DEBUG_PRINT('\t');
     }
   }
+  DEBUG_PRINTLN();
 
   // release CS
   digitalWrite(_cs, HIGH);

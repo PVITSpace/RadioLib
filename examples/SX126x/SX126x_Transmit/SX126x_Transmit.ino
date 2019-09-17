@@ -8,13 +8,24 @@
     - arbitrary binary data (byte array)
 
    Other modules from SX126x family can also be used.
+
+   For full API reference, see the GitHub Pages
+   https://jgromes.github.io/RadioLib/
 */
 
 // include the library
 #include <RadioLib.h>
 
-// SX1262 module is in slot A on the shield
-SX1262 lora = RadioShield.ModuleA;
+// SX1262 has the following connections:
+// NSS pin:   10
+// DIO1 pin:  2
+// DIO2 pin:  3
+// BUSY pin:  9
+SX1262 lora = new Module(10, 2, 3, 9);
+
+// or using RadioShield
+// https://github.com/jgromes/RadioShield
+//SX1262 lora = RadioShield.ModuleA;
 
 void setup() {
   Serial.begin(9600);
@@ -45,20 +56,22 @@ void setup() {
   //       control must be enabled by calling
   //       setTCXO() and specifying the reference
   //       voltage.
+  
   /*
-  Serial.print(F("[SX1262] Setting TCXO reference ... "));
-  // enable TCXO
-  // reference voltage:           1.6 V
-  // timeout:                     5000 us
-  state = lora.setTCXO(1.6);
-  if (state == ERR_NONE) {
-    Serial.println(F("success!"));
-  } else {
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    while (true);
-  }
+    Serial.print(F("[SX1262] Setting TCXO reference ... "));
+    // enable TCXO
+    // reference voltage:           1.6 V
+    // timeout:                     5000 us
+    state = lora.setTCXO(1.6);
+    if (state == ERR_NONE) {
+      Serial.println(F("success!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true);
+    }
   */
+  
 }
 
 void loop() {
@@ -79,7 +92,7 @@ void loop() {
 
   if (state == ERR_NONE) {
     // the packet was successfully transmitted
-    Serial.println(F(" success!"));
+    Serial.println(F("success!"));
 
     // print measured data rate
     Serial.print(F("[SX1262] Datarate:\t"));
@@ -88,11 +101,16 @@ void loop() {
 
   } else if (state == ERR_PACKET_TOO_LONG) {
     // the supplied packet was longer than 256 bytes
-    Serial.println(F(" too long!"));
+    Serial.println(F("too long!"));
 
   } else if (state == ERR_TX_TIMEOUT) {
     // timeout occured while transmitting packet
-    Serial.println(F(" timeout!"));
+    Serial.println(F("timeout!"));
+
+  } else {
+    // some other error occurred
+    Serial.print(F("failed, code "));
+    Serial.println(state);
 
   }
 

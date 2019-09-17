@@ -16,8 +16,15 @@
 // include the library
 #include <RadioLib.h>
 
-// SX1278 module is in slot A on the shield
-SX1278 fsk = RadioShield.ModuleA;
+// SX1278 has the following connections:
+// NSS pin:   10
+// DIO0 pin:  2
+// DIO1 pin:  3
+SX1278 fsk = new Module(10, 2, 3);
+
+// or using RadioShield
+// https://github.com/jgromes/RadioShield
+//SX1278 fsk = RadioShield.ModuleA;
 
 // create Morse client instance using the FSK module
 MorseClient morse(&fsk);
@@ -35,6 +42,11 @@ void setup() {
   // current limit:               100 mA
   // sync word:                   0x2D  0x01
   int state = fsk.beginFSK();
+
+  // when using one of the non-LoRa modules for Morse code
+  // (RF69, CC1101, etc.), use the basic begin() method
+  // int state = fsk.begin();
+
   if(state == ERR_NONE) {
     Serial.println(F("success!"));
   } else {

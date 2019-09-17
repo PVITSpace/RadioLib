@@ -39,7 +39,9 @@
 #include "Module.h"
 
 #include "modules/CC1101.h"
+#ifndef ESP8266
 #include "modules/ESP8266.h"
+#endif
 #include "modules/HC05.h"
 #include "modules/JDY08.h"
 #include "modules/nRF24.h"
@@ -68,9 +70,11 @@
 #include "protocols/PSK.h"
 
 // transport layer protocols
+#ifndef ESP8266
 #include "protocols/TransportLayer.h"
 #include "protocols/HTTP.h"
 #include "protocols/MQTT.h"
+#endif
 
 // RadioShield pin definitions
 #define RADIOSHIELD_CS_A   10
