@@ -4,45 +4,31 @@ SIM800::SIM800(Module* module) {
   _mod = module;
 }
 
-int16_t SIM800::begin(long speed, const char* pin) {
+int16_t SIM800::begin(long speed) {
   // set module properties
   _mod->AtLineFeed = "\r\n";
   _mod->baudrate = speed;
   _mod->init(USE_UART, INT_0);
-  
+
   // empty UART buffer (garbage data)
   _mod->ATemptyBuffer();
-  
+
   // power on
   pinMode(_mod->getInt0(), OUTPUT);
   digitalWrite(_mod->getInt0(), LOW);
   delay(1000);
   pinMode(_mod->getInt0(), INPUT);
-  
+
   // test AT setup
   if(!_mod->ATsendCommand("AT")) {
     return(ERR_AT_FAILED);
   }
-  
+
   // set phone functionality
   if(!_mod->ATsendCommand("AT+CFUN=1")) {
     return(ERR_AT_FAILED);
   }
-  
-  // set SMS message format
-  if(!_mod->ATsendCommand("AT+CMFG=1")) {
-    return(ERR_AT_FAILED);
-  }
-  
-  // set PIN code
-  char cmd[14];
-  strcat(cmd, "AT+CPIN=\"");
-  strcat(cmd, pin);
-  strcat(cmd, "\"");
-  if(!_mod->ATsendCommand(cmd)) {
-    return(ERR_AT_FAILED);
-  }
-  
+
   return(ERR_NONE);
 }
 
@@ -55,5 +41,34 @@ void SIM800::shutdown() {
 }
 
 int16_t SIM800::sendSMS(const char* num, const char* msg) {
+  // set SMS message format to text mode
+  if(!_mod->ATsendCommand("AT+CMGF=1")) {
+    return(ERR_AT_FAILED);
+  }
 
+  // build SMS command and text
+  size_t cmdLen = 9 + strlen(num) + 3;
+  char* cmd = new char[cmdLen];
+  strcpy(cmd, "AT+CMGS=\"");
+  strcat(cmd, num);
+  strcat(cmd, "\"\r");
+
+  size_t textLen = strlen(msg) + 2;
+  char* text = new char[textLen];
+  strcpy(text, msg);
+  text[textLen - 2] = 0x1A;
+  text[textLen - 1] = '\0';
+
+  // send the command
+  _mod->ModuleSerial->print(cmd);
+
+  delay(50);
+
+  // send the text
+  _mod->ModuleSerial->print(text);
+
+  delete[] cmd;
+  delete[] text;
+
+  return(ERR_NONE);
 }
