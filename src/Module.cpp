@@ -7,10 +7,11 @@ Module::Module(int rx, int tx, HardwareSerial* useSer) {
   _int0 = -1;
   _int1 = -1;
 
-#if defined(ESP32) || defined(SAMD_SERIES) || defined (ARDUINO_ARCH_STM32)
-    ModuleSerial = useSer;
+#ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
+  ModuleSerial = useSer;
 #else
   ModuleSerial = new SoftwareSerial(_rx, _tx);
+  (void)useSer;
 #endif
 }
 
@@ -33,10 +34,11 @@ Module::Module(int cs, int int0, int int1, int rx, int tx, SPIClass& spi, SPISet
   _spi = &spi;
   _spiSettings = spiSettings;
 
-#if defined(ESP32) || defined(SAMD_SERIES) || defined (ARDUINO_ARCH_STM32)
+#ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
   ModuleSerial = useSer;
 #else
   ModuleSerial = new SoftwareSerial(_rx, _tx);
+  (void)useSer;
 #endif
 }
 
@@ -53,33 +55,33 @@ Module::Module(int cs, int int0, int int1, int int2, SPIClass& spi, SPISettings 
 void Module::init(uint8_t interface, uint8_t gpio) {
   // select interface
   switch(interface) {
-    case USE_SPI:
+    case RADIOLIB_USE_SPI:
       pinMode(_cs, OUTPUT);
       digitalWrite(_cs, HIGH);
       _spi->begin();
       break;
-    case USE_UART:
+    case RADIOLIB_USE_UART:
 #if defined(ESP32)
       ModuleSerial->begin(baudrate, SERIAL_8N1, _rx, _tx);
 #else
       ModuleSerial->begin(baudrate);
 #endif
       break;
-    case USE_I2C:
+    case RADIOLIB_USE_I2C:
       break;
   }
 
   // select GPIO
   switch(gpio) {
-    case INT_NONE:
+    case RADIOLIB_INT_NONE:
       break;
-    case INT_0:
+    case RADIOLIB_INT_0:
       pinMode(_int0, INPUT);
       break;
-    case INT_1:
+    case RADIOLIB_INT_1:
       pinMode(_int1, INPUT);
       break;
-    case INT_BOTH:
+    case RADIOLIB_INT_BOTH:
       pinMode(_int0, INPUT);
       pinMode(_int1, INPUT);
       break;
@@ -120,20 +122,20 @@ bool Module::ATgetResponse() {
   while (millis() - start < _ATtimeout) {
     while(ModuleSerial->available() > 0) {
       char c = ModuleSerial->read();
-      DEBUG_PRINT(c);
+      RADIOLIB_VERBOSE_PRINT(c);
       data += c;
     }
 
     if(data.indexOf("OK") != -1) {
-      DEBUG_PRINTLN();
+      RADIOLIB_VERBOSE_PRINTLN();
       return(true);
     } else if (data.indexOf("ERROR") != -1) {
-      DEBUG_PRINTLN();
+      RADIOLIB_VERBOSE_PRINTLN();
       return(false);
     }
 
   }
-  DEBUG_PRINTLN();
+  RADIOLIB_VERBOSE_PRINTLN();
   return(false);
 }
 
@@ -170,24 +172,24 @@ int16_t Module::SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb, uint8_t 
   }
 
   // check failed, print debug info
-  DEBUG_PRINTLN();
-  DEBUG_PRINT(F("address:\t0x"));
-  DEBUG_PRINTLN(reg, HEX);
-  DEBUG_PRINT(F("bits:\t\t"));
-  DEBUG_PRINT(msb);
-  DEBUG_PRINT(' ');
-  DEBUG_PRINTLN(lsb);
-  DEBUG_PRINT(F("value:\t\t0b"));
-  DEBUG_PRINTLN(value, BIN);
-  DEBUG_PRINT(F("current:\t0b"));
-  DEBUG_PRINTLN(currentValue, BIN);
-  DEBUG_PRINT(F("mask:\t\t0b"));
-  DEBUG_PRINTLN(mask, BIN);
-  DEBUG_PRINT(F("new:\t\t0b"));
-  DEBUG_PRINTLN(newValue, BIN);
-  DEBUG_PRINT(F("read:\t\t0b"));
-  DEBUG_PRINTLN(readValue, BIN);
-  DEBUG_PRINTLN();
+  RADIOLIB_DEBUG_PRINTLN();
+  RADIOLIB_DEBUG_PRINT(F("address:\t0x"));
+  RADIOLIB_DEBUG_PRINTLN(reg, HEX);
+  RADIOLIB_DEBUG_PRINT(F("bits:\t\t"));
+  RADIOLIB_DEBUG_PRINT(msb);
+  RADIOLIB_DEBUG_PRINT(' ');
+  RADIOLIB_DEBUG_PRINTLN(lsb);
+  RADIOLIB_DEBUG_PRINT(F("value:\t\t0b"));
+  RADIOLIB_DEBUG_PRINTLN(value, BIN);
+  RADIOLIB_DEBUG_PRINT(F("current:\t0b"));
+  RADIOLIB_DEBUG_PRINTLN(currentValue, BIN);
+  RADIOLIB_DEBUG_PRINT(F("mask:\t\t0b"));
+  RADIOLIB_DEBUG_PRINTLN(mask, BIN);
+  RADIOLIB_DEBUG_PRINT(F("new:\t\t0b"));
+  RADIOLIB_DEBUG_PRINTLN(newValue, BIN);
+  RADIOLIB_DEBUG_PRINT(F("read:\t\t0b"));
+  RADIOLIB_DEBUG_PRINTLN(readValue, BIN);
+  RADIOLIB_DEBUG_PRINTLN();
 
   return(ERR_SPI_WRITE_FAILED);
 }
@@ -219,30 +221,30 @@ void Module::SPItransfer(uint8_t cmd, uint8_t reg, uint8_t* dataOut, uint8_t* da
 
   // send SPI register address with access command
   _spi->transfer(reg | cmd);
-  DEBUG_PRINT(reg | cmd, HEX);
-  DEBUG_PRINT('\t');
-  DEBUG_PRINT(reg | cmd, BIN);
-  DEBUG_PRINT('\t');
+  RADIOLIB_VERBOSE_PRINT(reg | cmd, HEX);
+  RADIOLIB_VERBOSE_PRINT('\t');
+  RADIOLIB_VERBOSE_PRINT(reg | cmd, BIN);
+  RADIOLIB_VERBOSE_PRINT('\t');
 
   // send data or get response
   if(cmd == SPIwriteCommand) {
     for(size_t n = 0; n < numBytes; n++) {
       _spi->transfer(dataOut[n]);
-      DEBUG_PRINT(dataOut[n], HEX);
-      DEBUG_PRINT('\t');
-      DEBUG_PRINT(dataOut[n], BIN);
-      DEBUG_PRINT('\t');
+      RADIOLIB_VERBOSE_PRINT(dataOut[n], HEX);
+      RADIOLIB_VERBOSE_PRINT('\t');
+      RADIOLIB_VERBOSE_PRINT(dataOut[n], BIN);
+      RADIOLIB_VERBOSE_PRINT('\t');
     }
   } else if (cmd == SPIreadCommand) {
     for(size_t n = 0; n < numBytes; n++) {
       dataIn[n] = _spi->transfer(0x00);
-      DEBUG_PRINT(dataIn[n], HEX);
-      DEBUG_PRINT('\t');
-      DEBUG_PRINT(dataIn[n], BIN);
-      DEBUG_PRINT('\t');
+      RADIOLIB_VERBOSE_PRINT(dataIn[n], HEX);
+      RADIOLIB_VERBOSE_PRINT('\t');
+      RADIOLIB_VERBOSE_PRINT(dataIn[n], BIN);
+      RADIOLIB_VERBOSE_PRINT('\t');
     }
   }
-  DEBUG_PRINTLN();
+  RADIOLIB_VERBOSE_PRINTLN();
 
   // release CS
   digitalWrite(_cs, HIGH);

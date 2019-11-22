@@ -77,6 +77,7 @@ void setup() {
   // lora.sleep()
   // lora.transmit();
   // lora.receive();
+  // lora.readData();
   // lora.scanChannel();
 }
 
@@ -136,7 +137,7 @@ void loop() {
       // print SNR (Signal-to-Noise Ratio)
       Serial.print(F("[SX1262] SNR:\t\t"));
       Serial.print(lora.getSNR());
-      Serial.println(F(" dBm"));
+      Serial.println(F(" dB"));
 
     } else if (state == ERR_CRC_MISMATCH) {
       // packet was received, but is malformed
@@ -148,6 +149,9 @@ void loop() {
       Serial.println(state);
 
     }
+
+    // put module back to listen mode
+    lora.startReceive();
 
     // we're ready to receive more packets,
     // enable interrupt service routine

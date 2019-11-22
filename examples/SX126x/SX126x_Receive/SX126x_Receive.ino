@@ -53,6 +53,28 @@ void setup() {
     Serial.println(state);
     while (true);
   }
+
+  // NOTE: Some SX126x modules use TCXO
+  //       (Temprature-Compensated Crystal Oscillator).
+  //       To be able to use these modules, TCXO
+  //       control must be enabled by calling
+  //       setTCXO() and specifying the reference
+  //       voltage.
+  
+  /*
+    Serial.print(F("[SX1262] Setting TCXO reference ... "));
+    // enable TCXO
+    // reference voltage:           1.6 V
+    // timeout:                     5000 us
+    state = lora.setTCXO(1.6);
+    if (state == ERR_NONE) {
+      Serial.println(F("success!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true);
+    }
+  */
 }
 
 void loop() {
@@ -89,7 +111,7 @@ void loop() {
     // of the last received packet
     Serial.print(F("[SX1262] SNR:\t\t"));
     Serial.print(lora.getSNR());
-    Serial.println(F(" dBm"));
+    Serial.println(F(" dB"));
 
   } else if (state == ERR_RX_TIMEOUT) {
     // timeout occurred while waiting for a packet

@@ -1,20 +1,63 @@
 #ifndef _RADIOLIB_TYPES_H
 #define _RADIOLIB_TYPES_H
-
 #if ARDUINO >= 100
   #include "Arduino.h"
 #else
   #error "Unsupported Arduino version (< 1.0.0)"
 #endif
 
+/*
+ * Uncomment to enable static-only memory management: no dynamic allocation will be performed.
+ * Warning: Large static arrays will be created in some methods. It is not advised to send large packets in this mode.
+ */
+
+//#define RADIOLIB_STATIC_ONLY
+
+// set the size of static arrays to use
+#define RADIOLIB_STATIC_ARRAY_SIZE   256
+
+/*
+ * Uncomment to enable debug output.
+ * Warning: Debug output will slow down the whole system significantly.
+ *          Also, it will result in larger compiled binary.
+ * Levels: debug - only main info
+ *         verbose - full transcript of all SPI/UART communication
+ */
+
 //#define RADIOLIB_DEBUG
+//#define RADIOLIB_VERBOSE
+
+// set which Serial port should be used for debug output
+#define RADIOLIB_DEBUG_PORT   Serial
 
 #ifdef RADIOLIB_DEBUG
-  #define DEBUG_PRINT(...) { Serial.print(__VA_ARGS__); }
-  #define DEBUG_PRINTLN(...) { Serial.println(__VA_ARGS__); }
+  #define RADIOLIB_DEBUG_PRINT(...) { RADIOLIB_DEBUG_PORT.print(__VA_ARGS__); }
+  #define RADIOLIB_DEBUG_PRINTLN(...) { RADIOLIB_DEBUG_PORT.println(__VA_ARGS__); }
 #else
-  #define DEBUG_PRINT(...) {}
-  #define DEBUG_PRINTLN(...) {}
+  #define RADIOLIB_DEBUG_PRINT(...) {}
+  #define RADIOLIB_DEBUG_PRINTLN(...) {}
+#endif
+
+#ifdef RADIOLIB_VERBOSE
+  #define RADIOLIB_VERBOSE_PRINT(...) { RADIOLIB_DEBUG_PORT.print(__VA_ARGS__); }
+  #define RADIOLIB_VERBOSE_PRINTLN(...) { RADIOLIB_DEBUG_PORT.println(__VA_ARGS__); }
+#else
+  #define RADIOLIB_VERBOSE_PRINT(...) {}
+  #define RADIOLIB_VERBOSE_PRINTLN(...) {}
+#endif
+
+/*
+ * Uncomment to enable god mode - all methods and member variables in all classes will be made public, thus making them accessible from Arduino code.
+ * Warning: Come on, it's called GOD mode - obviously only use this if you know what you're doing.
+ *          Failure to heed the above warning may result in bricked module.
+ */
+//#define RADIOLIB_GODMODE
+
+/*
+ * The following platforms do not support SoftwareSerial library.
+ */
+#if defined(ESP32) || defined(SAMD_SERIES) || defined(ARDUINO_ARCH_STM32) || defined(__SAM3X8E__)
+  #define RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
 #endif
 
 /*!
@@ -26,37 +69,37 @@
 /*!
   \brief Use SPI interface.
 */
-#define USE_SPI                               0x00
+#define RADIOLIB_USE_SPI                      0x00
 
 /*!
   \brief Use UART interface.
 */
-#define USE_UART                              0x01
+#define RADIOLIB_USE_UART                              0x01
 
 /*!
   \brief Use I2C interface.
 */
-#define USE_I2C                               0x02
+#define RADIOLIB_USE_I2C                               0x02
 
 /*!
   \brief Do not use any interrupts/GPIOs.
 */
-#define INT_NONE                              0x00
+#define RADIOLIB_INT_NONE                              0x00
 
 /*!
   \brief Use interrupt/GPIO 0.
 */
-#define INT_0                                 0x01
+#define RADIOLIB_INT_0                                 0x01
 
 /*!
   \brief Use interrupt/GPIO 1.
 */
-#define INT_1                                 0x02
+#define RADIOLIB_INT_1                                 0x02
 
 /*!
   \brief Use both interrupts/GPIOs.
 */
-#define INT_BOTH                              0x03
+#define RADIOLIB_INT_BOTH                              0x03
 
 /*!
   \}
@@ -241,6 +284,21 @@
   For example, this can happen when you try to change LoRa configuration when FSK modem is active.
 */
 #define ERR_WRONG_MODEM                       -20
+
+/*!
+  \brief The supplied number of RSSI samples is invalid.
+*/
+#define ERR_INVALID_NUM_SAMPLES               -21
+
+/*!
+  \brief The supplied RSSI offset is invalid.
+*/
+#define ERR_INVALID_RSSI_OFFSET               -22
+
+/*!
+  \brief The supplied encoding is invalid.
+*/
+#define ERR_INVALID_ENCODING                  -23
 
 // RF69-specific status codes
 
