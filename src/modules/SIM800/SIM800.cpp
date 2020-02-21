@@ -8,16 +8,17 @@ int16_t SIM800::begin(long speed) {
   // set module properties
   _mod->AtLineFeed = "\r\n";
   _mod->baudrate = speed;
-  _mod->init(USE_UART, INT_0);
+  _mod->init(RADIOLIB_USE_UART);
+  Module::pinMode(_mod->getIrq(), INPUT);
 
   // empty UART buffer (garbage data)
   _mod->ATemptyBuffer();
 
   // power on
-  pinMode(_mod->getInt0(), OUTPUT);
-  digitalWrite(_mod->getInt0(), LOW);
+  Module::pinMode(_mod->getIrq(), OUTPUT);
+  Module::digitalWrite(_mod->getIrq(), LOW);
   delay(1000);
-  pinMode(_mod->getInt0(), INPUT);
+  Module::pinMode(_mod->getIrq(), INPUT);
 
   // test AT setup
   if(!_mod->ATsendCommand("AT")) {
@@ -34,10 +35,10 @@ int16_t SIM800::begin(long speed) {
 
 void SIM800::shutdown() {
   // power off
-  pinMode(_mod->getInt0(), OUTPUT);
-  digitalWrite(_mod->getInt0(), LOW);
-  delay(1500);
-  pinMode(_mod->getInt0(), INPUT);
+  Module::pinMode(_mod->getIrq(), OUTPUT);
+  Module::digitalWrite(_mod->getIrq(), LOW);
+  delay(1000);
+  Module::pinMode(_mod->getIrq(), INPUT);
 }
 
 int16_t SIM800::sendSMS(const char* num, const char* msg) {

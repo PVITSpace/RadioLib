@@ -43,8 +43,7 @@ int16_t PSKClient::begin(int pin, float carrier, float rate, uint16_t audioFreq)
   _bitDuration = (uint32_t)(1000000.0/rate);
 
   // calculate 24-bit frequency
-  uint32_t mult = 1;
-  _carrier = (carrier * (mult << _phy->getDivExponent())) / _phy->getCrystalFreq();
+  _carrier = (carrier * 1000000.0) / _phy->getFreqStep();
 
   // set FSK frequency deviation to 0
   int16_t state = _phy->setFrequencyDeviation(0);

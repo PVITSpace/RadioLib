@@ -9,10 +9,10 @@ int16_t PagerClient::begin(float base, uint16_t speed) {
   _bitDuration = (uint32_t)1000000/speed;
 
   // calculate 24-bit frequency
-  _base = (base * (uint32_t(1) << _phy->getDivExponent())) / _phy->getCrystalFreq();
+  _base = (base * 1000000.0) / _phy->getFreqStep();
 
   // calculate module carrier frequency resolution
-  uint16_t step = round((_phy->getCrystalFreq() * 1000000) / (uint32_t(1) << _phy->getDivExponent()));
+  uint16_t step = round(_phy->getFreqStep());
 
   // calculate raw frequency shift
   _shift = FREQ_SHIFT_HZ/step;

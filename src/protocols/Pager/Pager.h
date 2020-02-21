@@ -1,8 +1,8 @@
 #ifndef _RADIOLIB_PAGER_H
 #define _RADIOLIB_PAGER_H
 
-#include "TypeDef.h"
-#include "PhysicalLayer.h"
+#include "../../TypeDef.h"
+#include "../PhysicalLayer/PhysicalLayer.h"
 
 // supported encoding schemes
 #define ASCII                                         0

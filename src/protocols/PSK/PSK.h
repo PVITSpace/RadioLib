@@ -1,8 +1,8 @@
 #ifndef _KITELIB_PSK_H
 #define _KITELIB_PSK_H
 
-#include "TypeDef.h"
-#include "PhysicalLayer.h"
+#include "../../TypeDef.h"
+#include "../PhysicalLayer/PhysicalLayer.h"
 
 // Varicode character table: - position in table corresponds to ASCII code
 //                           - value in table corresponds to Varicode code
@@ -142,41 +142,41 @@ class VaricodeString {
     VaricodeString(char c);
     VaricodeString(const char* str);
     ~VaricodeString();
-  
+
     size_t length();
     uint16_t* byteArr();
-  
+
   private:
     char* _str;
     size_t _len;
-    
+
     uint16_t getBits(char c);
 };
 
 class PSKClient {
   public:
     PSKClient(PhysicalLayer* phy);
-    
+
     // basic methods
     int16_t begin(int pin, float base, float rate = 31.25, uint16_t audioFreq = 400);
     size_t write(uint16_t* buff, size_t len);
     size_t write(uint16_t code);
-    
+
     size_t print(VaricodeString &);
     size_t print(const char[]);
-    
+
     size_t println(void);
     size_t println(VaricodeString &);
     size_t println(const char[]);
-    
+
   private:
     PhysicalLayer* _phy;
-    
+
     int _pin;
     uint16_t _audioFreq;
     uint32_t _carrier;
     uint16_t _bitDuration;
-    
+
     void mark();
     void space();
 };
