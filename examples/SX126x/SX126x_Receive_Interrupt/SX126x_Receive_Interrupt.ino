@@ -24,7 +24,7 @@
 // SX1262 has the following connections:
 // NSS pin:   10
 // DIO1 pin:  2
-// DIO2 pin:  3
+// NRST pin:  3
 // BUSY pin:  9
 SX1262 lora = new Module(10, 2, 3, 9);
 
@@ -41,10 +41,12 @@ void setup() {
   // bandwidth:                   125.0 kHz
   // spreading factor:            9
   // coding rate:                 7
-  // sync word:                   0x1424 (private network)
+  // sync word:                   0x12 (private network)
   // output power:                14 dBm
   // current limit:               60 mA
   // preamble length:             8 symbols
+  // TCXO voltage:                1.6 V (set to 0 to not use TCXO)
+  // regulator:                   DC-DC (set to true to use LDO)
   // CRC:                         enabled
   int state = lora.begin();
   if (state == ERR_NONE) {
@@ -118,7 +120,7 @@ void loop() {
     // you can also read received data as byte array
     /*
       byte byteArr[8];
-      int state = lora.receive(byteArr, 8);
+      int state = lora.readData(byteArr, 8);
     */
 
     if (state == ERR_NONE) {

@@ -18,6 +18,7 @@
   - PhysicalLayer protocols
     - RTTY (RTTYClient)
     - Morse Code (MorseClient)
+    - AX.25 (AX25Client)
   - TransportLayer protocols
     - HTTP (HTTPClient)
     - MQTT (MQTTClient)
@@ -67,6 +68,7 @@
 
 // physical layer protocols
 #include "protocols/PhysicalLayer/PhysicalLayer.h"
+#include "protocols/AX25/AX25.h"
 #include "protocols/Morse/Morse.h"
 #include "protocols/RTTY/RTTY.h"
 
@@ -76,6 +78,9 @@
 #include "protocols/HTTP/HTTP.h"
 #include "protocols/MQTT/MQTT.h"
 #endif
+
+// only create Radio class when using RadioShield
+#ifdef RADIOLIB_RADIOSHIELD
 
 // RadioShield pin definitions
 #define RADIOSHIELD_CS_A   10
@@ -115,5 +120,6 @@ class Radio {
 };
 
 Radio RadioShield;
+#endif
 
 #endif

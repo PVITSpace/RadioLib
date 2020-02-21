@@ -1,18 +1,20 @@
 #include "CC1101.h"
 
-CC1101::CC1101(Module* module) : PhysicalLayer(CC1101_CRYSTAL_FREQ, CC1101_DIV_EXPONENT, CC1101_MAX_PACKET_LENGTH) {
+CC1101::CC1101(Module* module) : PhysicalLayer(CC1101_FREQUENCY_STEP_SIZE, CC1101_MAX_PACKET_LENGTH) {
   _mod = module;
   _packetLengthQueried = false;
   _packetLengthConfig = CC1101_LENGTH_CONFIG_VARIABLE;
+  _modulation = CC1101_MOD_FORMAT_2_FSK;
 
   _syncWordLength = 2;
 }
 
-int16_t CC1101::begin(float freq, float br, float rxBw, float freqDev, int8_t power, uint8_t preambleLength) {
+int16_t CC1101::begin(float freq, float br, float freqDev, float rxBw, int8_t power, uint8_t preambleLength) {
   // set module properties
   _mod->SPIreadCommand = CC1101_CMD_READ;
   _mod->SPIwriteCommand = CC1101_CMD_WRITE;
-  _mod->init(RADIOLIB_USE_SPI, RADIOLIB_INT_0);
+  _mod->init(RADIOLIB_USE_SPI);
+  Module::pinMode(_mod->getIrq(), INPUT);
 
   // try to find the CC1101 chip
   uint8_t i = 0;
@@ -40,7 +42,7 @@ int16_t CC1101::begin(float freq, float br, float rxBw, float freqDev, int8_t po
 
   if(!flagFound) {
     RADIOLIB_DEBUG_PRINTLN(F("No CC1101 found!"));
-    SPI.end();
+    _mod->term();
     return(ERR_CHIP_NOT_FOUND);
   } else {
     RADIOLIB_DEBUG_PRINTLN(F("Found CC1101! (match by CC1101_REG_VERSION == 0x14)"));
@@ -48,51 +50,43 @@ int16_t CC1101::begin(float freq, float br, float rxBw, float freqDev, int8_t po
 
   // configure settings not accessible by API
   int16_t state = config();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // configure publicly accessible settings
   state = setFrequency(freq);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // configure bitrate
   state = setBitRate(br);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // configure default RX bandwidth
   state = setRxBandwidth(rxBw);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // configure default frequency deviation
   state = setFrequencyDeviation(freqDev);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // configure default TX output power
   state = setOutputPower(power);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set default packet length mode
   state = variablePacketLengthMode();
-  if (state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // configure default preamble lenght
   state = setPreambleLength(preambleLength);
-  if (state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
+
+  // set default data shaping
+  state = setDataShaping(0);
+  RADIOLIB_ASSERT(state);
+
+  // set default encoding
+  state = setEncoding(2);
+  RADIOLIB_ASSERT(state);
 
   // flush FIFOs
   SPIsendCommand(CC1101_CMD_FLUSH_RX);
@@ -104,15 +98,17 @@ int16_t CC1101::begin(float freq, float br, float rxBw, float freqDev, int8_t po
 int16_t CC1101::transmit(uint8_t* data, size_t len, uint8_t addr) {
   // start transmission
   int16_t state = startTransmit(data, len, addr);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // wait for transmission start
-  while(!digitalRead(_mod->getInt0()));
+  while(!digitalRead(_mod->getIrq())) {
+    yield();
+  }
 
   // wait for transmission end
-  while(digitalRead(_mod->getInt0()));
+  while(digitalRead(_mod->getIrq())) {
+    yield();
+  }
 
   // set mode to standby
   standby();
@@ -126,15 +122,17 @@ int16_t CC1101::transmit(uint8_t* data, size_t len, uint8_t addr) {
 int16_t CC1101::receive(uint8_t* data, size_t len) {
   // start reception
   int16_t state = startReceive();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // wait for sync word
-  while(!digitalRead(_mod->getInt0()));
+  while(!digitalRead(_mod->getIrq())) {
+    yield();
+  }
 
   // wait for packet end
-  while(digitalRead(_mod->getInt0()));
+  while(digitalRead(_mod->getIrq())) {
+    yield();
+  }
 
   // read packet data
   return(readData(data, len));
@@ -157,9 +155,7 @@ int16_t CC1101::transmitDirect(uint32_t frf) {
 
   // activate direct mode
   int16_t state = directMode();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // start transmitting
   SPIsendCommand(CC1101_CMD_TX);
@@ -169,9 +165,7 @@ int16_t CC1101::transmitDirect(uint32_t frf) {
 int16_t CC1101::receiveDirect() {
   // activate direct mode
   int16_t state = directMode();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // start receiving
   SPIsendCommand(CC1101_CMD_RX);
@@ -186,11 +180,26 @@ int16_t CC1101::packetMode() {
 }
 
 void CC1101::setGdo0Action(void (*func)(void), uint8_t dir) {
-  attachInterrupt(digitalPinToInterrupt(_mod->getInt0()), func, dir);
+  attachInterrupt(digitalPinToInterrupt(_mod->getIrq()), func, dir);
+}
+
+void CC1101::clearGdo0Action() {
+  detachInterrupt(digitalPinToInterrupt(_mod->getIrq()));
 }
 
 void CC1101::setGdo2Action(void (*func)(void), uint8_t dir) {
-  attachInterrupt(digitalPinToInterrupt(_mod->getInt1()), func, dir);
+  if(_mod->getGpio() != NC) {
+    return;
+  }
+  Module::pinMode(_mod->getGpio(), INPUT);
+  attachInterrupt(digitalPinToInterrupt(_mod->getGpio()), func, dir);
+}
+
+void CC1101::clearGdo2Action() {
+  if(_mod->getGpio() != NC) {
+    return;
+  }
+  detachInterrupt(digitalPinToInterrupt(_mod->getGpio()));
 }
 
 int16_t CC1101::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
@@ -206,10 +215,8 @@ int16_t CC1101::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
   SPIsendCommand(CC1101_CMD_FLUSH_TX);
 
   // set GDO0 mapping
-  int state = SPIsetRegValue(CC1101_REG_IOCFG0, CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  int16_t state = SPIsetRegValue(CC1101_REG_IOCFG0, CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED);
+  RADIOLIB_ASSERT(state);
 
   // optionally write packet length
   if (_packetLengthConfig == CC1101_LENGTH_CONFIG_VARIABLE) {
@@ -240,9 +247,7 @@ int16_t CC1101::startReceive() {
 
   // set GDO0 mapping
   int state = SPIsetRegValue(CC1101_REG_IOCFG0, CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set mode to receive
   SPIsendCommand(CC1101_CMD_RX);
@@ -273,9 +278,6 @@ int16_t CC1101::readData(uint8_t* data, size_t len) {
   uint8_t val = SPIgetRegValue(CC1101_REG_FIFO);
   _rawLQI = val & 0x7F;
 
-  // add terminating null
-  data[length] = 0;
-
   // flush Rx FIFO
   SPIsendCommand(CC1101_CMD_FLUSH_RX);
 
@@ -286,8 +288,8 @@ int16_t CC1101::readData(uint8_t* data, size_t len) {
   standby();
 
   // check CRC
-  if((val & 0b10000000) == 0b00000000) {
-    return(ERR_CRC_MISMATCH);
+   if (_crcOn && (val & 0b10000000) == 0b00000000) {
+    return (ERR_CRC_MISMATCH);
   }
 
   return(ERR_NONE);
@@ -315,7 +317,8 @@ int16_t CC1101::setFrequency(float freq) {
     _freq = freq;
   }
 
-  return(state);
+  // Update the TX power accordingly to new freq. (PA values depend on chosen freq)
+  return(setOutputPower(_power));
 }
 
 int16_t CC1101::setBitRate(float br) {
@@ -351,14 +354,14 @@ int16_t CC1101::setRxBandwidth(float rxBw) {
   for(int8_t e = 3; e >= 0; e--) {
     for(int8_t m = 3; m >= 0; m --) {
       float point = (CC1101_CRYSTAL_FREQ * 1000000.0)/(8 * (m + 4) * ((uint32_t)1 << e));
-      if(abs((rxBw * 1000.0) - point) <= 0.001) {
+      if(abs((rxBw * 1000.0) - point) <= 1000) {
         // set Rx channel filter bandwidth
         return(SPIsetRegValue(CC1101_REG_MDMCFG4, (e << 6) | (m << 4), 7, 4));
       }
     }
   }
 
-  return(ERR_UNKNOWN);
+  return(ERR_INVALID_RX_BANDWIDTH);
 }
 
 int16_t CC1101::setFrequencyDeviation(float freqDev) {
@@ -445,12 +448,27 @@ int16_t CC1101::setOutputPower(int8_t power) {
       return(ERR_INVALID_OUTPUT_POWER);
   }
 
-  // write raw power setting
-  return(SPIsetRegValue(CC1101_REG_PATABLE, powerRaw));
+  // store the value
+  _power = power;
+
+  if(_modulation == CC1101_MOD_FORMAT_ASK_OOK){
+    // Amplitude modulation:
+    // PA_TABLE[0] is the power to be used when transmitting a 0  (no power)
+    // PA_TABLE[1] is the power to be used when transmitting a 1  (full power)
+
+    uint8_t paValues[2] = {0x00, powerRaw};
+    SPIwriteRegisterBurst(CC1101_REG_PATABLE, paValues, 2);
+    return(ERR_NONE);
+
+  } else {
+    // Freq modulation:
+    // PA_TABLE[0] is the power to be used when transmitting.
+    return(SPIsetRegValue(CC1101_REG_PATABLE, powerRaw));
+  }
 }
 
-int16_t CC1101::setSyncWord(uint8_t* syncWord, uint8_t len, uint8_t maxErrBits) {
-  if((maxErrBits > 1) || (len > 2)) {
+int16_t CC1101::setSyncWord(uint8_t* syncWord, uint8_t len, uint8_t maxErrBits, bool requireCarrierSense) {
+  if((maxErrBits > 1) || (len != 2)) {
     return(ERR_INVALID_SYNC_WORD);
   }
 
@@ -464,20 +482,19 @@ int16_t CC1101::setSyncWord(uint8_t* syncWord, uint8_t len, uint8_t maxErrBits) 
   _syncWordLength = len;
 
   // enable sync word filtering
-  int16_t state = enableSyncWordFiltering(maxErrBits);
-  if (state != ERR_NONE) {
-    return(state);
-  }
+  int16_t state = enableSyncWordFiltering(maxErrBits, requireCarrierSense);
+  RADIOLIB_ASSERT(state);
 
   // set sync word register
-  _mod->SPIwriteRegisterBurst(CC1101_REG_SYNC1, syncWord, len);
+  state = SPIsetRegValue(CC1101_REG_SYNC1, syncWord[0]);
+  state |= SPIsetRegValue(CC1101_REG_SYNC0, syncWord[1]);
 
-  return(ERR_NONE);
+  return(state);
 }
 
-int16_t CC1101::setSyncWord(uint8_t syncH, uint8_t syncL, uint8_t maxErrBits) {
+int16_t CC1101::setSyncWord(uint8_t syncH, uint8_t syncL, uint8_t maxErrBits, bool requireCarrierSense) {
   uint8_t syncWord[] = { syncH, syncL };
-  return(setSyncWord(syncWord, sizeof(syncWord), maxErrBits));
+  return(setSyncWord(syncWord, sizeof(syncWord), maxErrBits, requireCarrierSense));
 }
 
 int16_t CC1101::setPreambleLength(uint8_t preambleLength) {
@@ -524,9 +541,7 @@ int16_t CC1101::setNodeAddress(uint8_t nodeAddr, uint8_t numBroadcastAddrs) {
 
   // enable address filtering
   int16_t state = SPIsetRegValue(CC1101_REG_PKTCTRL1, numBroadcastAddrs + 0x01, 1, 0);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set node address
   return(SPIsetRegValue(CC1101_REG_ADDR, nodeAddr));
@@ -535,13 +550,43 @@ int16_t CC1101::setNodeAddress(uint8_t nodeAddr, uint8_t numBroadcastAddrs) {
 int16_t CC1101::disableAddressFiltering() {
   // disable address filtering
   int16_t state = _mod->SPIsetRegValue(CC1101_REG_PKTCTRL1, CC1101_ADR_CHK_NONE, 1, 0);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set node address to default (0x00)
   return(SPIsetRegValue(CC1101_REG_ADDR, 0x00));
 }
+
+
+int16_t CC1101::setOOK(bool enableOOK) {
+  // Change modulation
+  if(enableOOK) {
+    int16_t state = SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_MOD_FORMAT_ASK_OOK, 6, 4);
+    RADIOLIB_ASSERT(state);
+
+    // PA_TABLE[0] is (by default) the power value used when transmitting a "0L".
+    // Set PA_TABLE[1] to be used when transmitting a "1L".
+    state = SPIsetRegValue(CC1101_REG_FREND0, 1, 2, 0);
+    RADIOLIB_ASSERT(state);
+
+
+    // update current modulation
+    _modulation = CC1101_MOD_FORMAT_ASK_OOK;
+  } else {
+    int16_t state = SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_MOD_FORMAT_2_FSK, 6, 4);
+    RADIOLIB_ASSERT(state);
+
+    // Reset FREND0 to default value.
+    state = SPIsetRegValue(CC1101_REG_FREND0, 0, 2, 0);
+    RADIOLIB_ASSERT(state);
+
+    // update current modulation
+    _modulation = CC1101_MOD_FORMAT_2_FSK;
+  }
+
+  // Update PA_TABLE values according to the new _modulation.
+  return(setOutputPower(_power));
+}
+
 
 float CC1101::getRSSI() {
   float rssi;
@@ -579,39 +624,29 @@ int16_t CC1101::variablePacketLengthMode(uint8_t maxLen) {
   return(setPacketMode(CC1101_LENGTH_CONFIG_VARIABLE, maxLen));
 }
 
-int16_t CC1101::enableSyncWordFiltering(uint8_t maxErrBits) {
-  if (maxErrBits > 1) {
-    return(ERR_INVALID_SYNC_WORD);
+int16_t CC1101::enableSyncWordFiltering(uint8_t maxErrBits, bool requireCarrierSense) {
+  switch (maxErrBits){
+    case 0:
+      // in 16 bit sync word, expect all 16 bits.
+      return (SPIsetRegValue(CC1101_REG_MDMCFG2,
+        requireCarrierSense ? CC1101_SYNC_MODE_16_16_THR : CC1101_SYNC_MODE_16_16, 2, 0));
+    case 1:
+      // in 16 bit sync word, expect at least 15 bits.
+      return (SPIsetRegValue(CC1101_REG_MDMCFG2,
+        requireCarrierSense ? CC1101_SYNC_MODE_15_16_THR : CC1101_SYNC_MODE_15_16, 2, 0));
+    default:
+      return (ERR_INVALID_SYNC_WORD);
   }
-
-  if (maxErrBits == 0) {
-    if (_syncWordLength == 1) {
-      // in 16 bit sync word, expect all 16 bits
-      return(SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_16_16, 2, 0));
-    } else {
-      // there's no 32 of 32 case, so we resort to 30 of 32 bits required
-      return(SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_30_32, 2, 0));
-    }
-  }
-
-  if (maxErrBits == 1) {
-    if (_syncWordLength == 1) {
-      // in 16 bit sync word, expect at least 15 bits
-      return(SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_15_16, 2, 0));
-    } else {
-      // in 32 bits sync word (16 + 16), expect 30 of 32 to match
-      return(SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_30_32, 2, 0));
-    }
-  }
-
-  return(ERR_UNKNOWN);
 }
 
-int16_t CC1101::disableSyncWordFiltering() {
-  return(SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_NONE, 2, 0));
+int16_t CC1101::disableSyncWordFiltering(bool requireCarrierSense) {
+  return(SPIsetRegValue(CC1101_REG_MDMCFG2,
+    requireCarrierSense ? CC1101_SYNC_MODE_NONE_THR : CC1101_SYNC_MODE_NONE, 2, 0));
 }
 
 int16_t CC1101::setCrcFiltering(bool crcOn) {
+  _crcOn = crcOn;
+
   if (crcOn == true) {
     return(SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON, 2, 2));
   } else {
@@ -629,18 +664,14 @@ int16_t CC1101::setPromiscuousMode(bool promiscuous) {
   if (promiscuous == true) {
     // disable preamble and sync word filtering and insertion
     state = disableSyncWordFiltering();
-    if (state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
 
     // disable CRC filtering
     state = setCrcFiltering(false);
   } else {
     // enable preamble and sync word filtering and insertion
     state = enableSyncWordFiltering();
-    if (state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
 
     // enable CRC filtering
     state = setCrcFiltering(true);
@@ -649,12 +680,57 @@ int16_t CC1101::setPromiscuousMode(bool promiscuous) {
   return(state);
 }
 
+int16_t CC1101::setDataShaping(float sh) {
+  // set mode to standby
+  int16_t state = standby();
+  RADIOLIB_ASSERT(state);
+
+  // set data shaping
+  sh *= 10.0;
+  if(abs(sh - 0.0) <= 0.001) {
+    state = _mod->SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_MOD_FORMAT_2_FSK, 6, 4);
+  } else if(abs(sh - 5.0) <= 0.001) {
+    state = _mod->SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_MOD_FORMAT_GFSK, 6, 4);
+  } else {
+    return(ERR_INVALID_DATA_SHAPING);
+  }
+  return(state);
+}
+
+int16_t CC1101::setEncoding(uint8_t encoding) {
+  // set mode to standby
+  int16_t state = standby();
+  RADIOLIB_ASSERT(state);
+
+  // set encoding
+  switch(encoding) {
+    case 0:
+      state = _mod->SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_MANCHESTER_EN_OFF, 3, 3);
+      RADIOLIB_ASSERT(state);
+      return(_mod->SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_WHITE_DATA_OFF, 6, 6));
+    case 1:
+      state = _mod->SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_MANCHESTER_EN_ON, 3, 3);
+      RADIOLIB_ASSERT(state);
+      return(_mod->SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_WHITE_DATA_OFF, 6, 6));
+    case 2:
+      state = _mod->SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_MANCHESTER_EN_OFF, 3, 3);
+      RADIOLIB_ASSERT(state);
+      return(_mod->SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_WHITE_DATA_ON, 6, 6));
+    default:
+      return(ERR_INVALID_ENCODING);
+  }
+}
+
 int16_t CC1101::config() {
+  // Reset the radio. Registers may be dirty from previous usage.
+  SPIsendCommand(CC1101_CMD_RESET);
+
+  // Wait a ridiculous amount of time to be sure radio is ready.
+  delay(150);
+
   // enable automatic frequency synthesizer calibration
   int16_t state = SPIsetRegValue(CC1101_REG_MCSM0, CC1101_FS_AUTOCAL_IDLE_TO_RXTX, 5, 4);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set packet mode
   state = packetMode();
@@ -707,19 +783,16 @@ int16_t CC1101::setPacketMode(uint8_t mode, uint8_t len) {
     return(ERR_PACKET_TOO_LONG);
   }
 
-  // set to fixed packet length
-  int16_t state = _mod->SPIsetRegValue(CC1101_REG_PKTCTRL0, mode, 7, 7);
-  if (state != ERR_NONE) {
-    return(state);
-  }
+  // set PKTCTRL0.LENGTH_CONFIG
+  int16_t state = _mod->SPIsetRegValue(CC1101_REG_PKTCTRL0, mode, 1, 0);
+  RADIOLIB_ASSERT(state);
 
   // set length to register
   state = _mod->SPIsetRegValue(CC1101_REG_PKTLEN, len);
-  if (state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // update the cached value
+  _packetLength = len;
   _packetLengthConfig = mode;
   return(state);
 }
@@ -769,9 +842,9 @@ void CC1101::SPIwriteRegisterBurst(uint8_t reg, uint8_t* data, size_t len) {
 }
 
 void CC1101::SPIsendCommand(uint8_t cmd) {
-  digitalWrite(_mod->getCs(), LOW);
+  Module::digitalWrite(_mod->getCs(), LOW);
   SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
   SPI.transfer(cmd);
   SPI.endTransaction();
-  digitalWrite(_mod->getCs(), HIGH);
+  Module::digitalWrite(_mod->getCs(), HIGH);
 }

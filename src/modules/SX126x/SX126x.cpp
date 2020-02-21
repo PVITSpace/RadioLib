@@ -1,13 +1,14 @@
 #include "SX126x.h"
 
-SX126x::SX126x(Module* mod) : PhysicalLayer(SX126X_CRYSTAL_FREQ, SX126X_DIV_EXPONENT, SX126X_MAX_PACKET_LENGTH) {
+SX126x::SX126x(Module* mod) : PhysicalLayer(SX126X_FREQUENCY_STEP_SIZE, SX126X_MAX_PACKET_LENGTH) {
   _mod = mod;
 }
 
-int16_t SX126x::begin(float bw, uint8_t sf, uint8_t cr, uint16_t syncWord, float currentLimit, uint16_t preambleLength) {
+int16_t SX126x::begin(float bw, uint8_t sf, uint8_t cr, uint8_t syncWord, float currentLimit, uint16_t preambleLength, float tcxoVoltage, bool useRegulatorLDO) {
   // set module properties
-  _mod->init(RADIOLIB_USE_SPI, RADIOLIB_INT_BOTH);
-  pinMode(_mod->getRx(), INPUT);
+  _mod->init(RADIOLIB_USE_SPI);
+  Module::pinMode(_mod->getIrq(), INPUT);
+  Module::pinMode(_mod->getGpio(), INPUT);
 
   // BW in kHz and SF are required in order to calculate LDRO for setModulationParams
   _bwKhz = bw;
@@ -19,60 +20,64 @@ int16_t SX126x::begin(float bw, uint8_t sf, uint8_t cr, uint16_t syncWord, float
   _ldro = 0x00;
   _crcType = SX126X_LORA_CRC_ON;
   _preambleLength = preambleLength;
+  _tcxoDelay = 0;
+  _headerType = SX126X_LORA_HEADER_EXPLICIT;
+  _implicitLen = 0xFF;
+
+  // reset the module and verify startup
+  int16_t state = reset();
+  RADIOLIB_ASSERT(state);
 
   // set mode to standby
-  int16_t state = standby();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  state = standby();
+  RADIOLIB_ASSERT(state);
 
   // configure settings not accessible by API
   state = config(SX126X_PACKET_TYPE_LORA);
-  if(state != ERR_NONE) {
-    return(state);
+  RADIOLIB_ASSERT(state);
+
+  // set TCXO control, if requested
+  if(tcxoVoltage > 0.0) {
+    state = setTCXO(tcxoVoltage);
+    RADIOLIB_ASSERT(state);
   }
 
   // configure publicly accessible settings
   state = setSpreadingFactor(sf);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setBandwidth(bw);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setCodingRate(cr);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setSyncWord(syncWord);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setCurrentLimit(currentLimit);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setPreambleLength(preambleLength);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set publicly accessible settings that are not a part of begin method
-  state = setDio2AsRfSwitch(false);
+  state = setDio2AsRfSwitch(true);
+  RADIOLIB_ASSERT(state);
+
+  if (useRegulatorLDO) {
+      state = setRegulatorLDO();
+  } else {
+      state = setRegulatorDCDC();
+  }
 
   return(state);
 }
 
-int16_t SX126x::beginFSK(float br, float freqDev, float rxBw, float currentLimit, uint16_t preambleLength, float dataShaping) {
+int16_t SX126x::beginFSK(float br, float freqDev, float rxBw, float currentLimit, uint16_t preambleLength, float dataShaping, float tcxoVoltage, bool useRegulatorLDO) {
   // set module properties
-  _mod->init(RADIOLIB_USE_SPI, RADIOLIB_INT_BOTH);
-  pinMode(_mod->getRx(), INPUT);
+  _mod->init(RADIOLIB_USE_SPI);
+  Module::pinMode(_mod->getIrq(), INPUT);
 
   // initialize configuration variables (will be overwritten during public settings configuration)
   _br = 21333;                                  // 48.0 kbps
@@ -84,72 +89,103 @@ int16_t SX126x::beginFSK(float br, float freqDev, float rxBw, float currentLimit
   _preambleLengthFSK = preambleLength;
   _addrComp = SX126X_GFSK_ADDRESS_FILT_OFF;
 
+  // reset the module and verify startup
+  int16_t state = reset();
+  RADIOLIB_ASSERT(state);
+
   // set mode to standby
-  int16_t state = standby();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  state = standby();
+  RADIOLIB_ASSERT(state);
 
   // configure settings not accessible by API
   state = config(SX126X_PACKET_TYPE_GFSK);
-  if(state != ERR_NONE) {
-    return(state);
+  RADIOLIB_ASSERT(state);
+
+  // set TCXO control, if requested
+  if(tcxoVoltage > 0.0) {
+    state = setTCXO(tcxoVoltage);
+    RADIOLIB_ASSERT(state);
   }
 
   // configure publicly accessible settings
   state = setBitRate(br);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setFrequencyDeviation(freqDev);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setRxBandwidth(rxBw);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setCurrentLimit(currentLimit);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setDataShaping(dataShaping);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setPreambleLength(preambleLength);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set publicly accessible settings that are not a part of begin method
   uint8_t sync[] = {0x2D, 0x01};
   state = setSyncWord(sync, 2);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   state = setWhitening(true, 0x0100);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
+
+  state = variablePacketLengthMode(SX126X_MAX_PACKET_LENGTH);
+  RADIOLIB_ASSERT(state);
 
   state = setDio2AsRfSwitch(false);
+  RADIOLIB_ASSERT(state);
+
+  if (useRegulatorLDO) {
+      state = setRegulatorLDO();
+  } else {
+      state = setRegulatorDCDC();
+  }
 
   return(state);
+}
+
+int16_t SX126x::reset(bool verify) {
+  // run the reset sequence
+  Module::pinMode(_mod->getRst(), OUTPUT);
+  Module::digitalWrite(_mod->getRst(), LOW);
+  delayMicroseconds(150);
+  Module::digitalWrite(_mod->getRst(), HIGH);
+
+  // return immediately when verification is disabled
+  if(!verify) {
+    return(ERR_NONE);
+  }
+
+  // set mode to standby - SX126x often refuses first few commands after reset
+  uint32_t start = millis();
+  while(true) {
+    // try to set mode to standby
+    int16_t state = standby();
+    if(state == ERR_NONE) {
+      // standby command successful
+      return(ERR_NONE);
+    }
+
+    // standby command failed, check timeout and try again
+    if(millis() - start >= 3000) {
+      // timed out, possibly incorrect wiring
+      return(state);
+    }
+
+    // wait a bit to not spam the module
+    delay(10);
+  }
 }
 
 int16_t SX126x::transmit(uint8_t* data, size_t len, uint8_t addr) {
   // set mode to standby
   int16_t state = standby();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // check packet length
   if(len > SX126X_MAX_PACKET_LENGTH) {
@@ -162,11 +198,11 @@ int16_t SX126x::transmit(uint8_t* data, size_t len, uint8_t addr) {
   uint8_t modem = getPacketType();
   if(modem == SX126X_PACKET_TYPE_LORA) {
     // calculate timeout (150% of expected time-on-air)
-    timeout = (float)getTimeOnAir(len) * 1.5;
+    timeout = (getTimeOnAir(len) * 3) / 2;
 
   } else if(modem == SX126X_PACKET_TYPE_GFSK) {
     // calculate timeout (500% of expected time-on-air)
-    timeout = (float)getTimeOnAir(len) * 5.0;
+    timeout = getTimeOnAir(len) * 5;
 
   } else {
     return(ERR_UNKNOWN);
@@ -178,15 +214,14 @@ int16_t SX126x::transmit(uint8_t* data, size_t len, uint8_t addr) {
 
   // start transmission
   state = startTransmit(data, len, addr);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // wait for packet transmission or timeout
   uint32_t start = micros();
-  while(!digitalRead(_mod->getInt0())) {
+  while(!digitalRead(_mod->getIrq())) {
     if(micros() - start > timeout) {
       clearIrqStatus();
+      standby();
       return(ERR_TX_TIMEOUT);
     }
   }
@@ -197,9 +232,7 @@ int16_t SX126x::transmit(uint8_t* data, size_t len, uint8_t addr) {
 
   // clear interrupt flags
   state = clearIrqStatus();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set mode to standby to disable transmitter
   state = standby();
@@ -210,9 +243,7 @@ int16_t SX126x::transmit(uint8_t* data, size_t len, uint8_t addr) {
 int16_t SX126x::receive(uint8_t* data, size_t len) {
   // set mode to standby
   int16_t state = standby();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   uint32_t timeout = 0;
 
@@ -222,7 +253,6 @@ int16_t SX126x::receive(uint8_t* data, size_t len) {
     // calculate timeout (100 LoRa symbols, the default for SX127x series)
     float symbolLength = (float)(uint32_t(1) << _sf) / (float)_bwKhz;
     timeout = (uint32_t)(symbolLength * 100.0 * 1000.0);
-
   } else if(modem == SX126X_PACKET_TYPE_GFSK) {
     // calculate timeout (500 % of expected time-one-air)
     size_t maxLen = len;
@@ -243,24 +273,23 @@ int16_t SX126x::receive(uint8_t* data, size_t len) {
   // start reception
   uint32_t timeoutValue = (uint32_t)((float)timeout / 15.625);
   state = startReceive(timeoutValue);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // wait for packet reception or timeout
   uint32_t start = micros();
-  while(!digitalRead(_mod->getInt0())) {
+  while(!digitalRead(_mod->getIrq())) {
     if(micros() - start > timeout) {
       fixImplicitTimeout();
       clearIrqStatus();
+      standby();
       return(ERR_RX_TIMEOUT);
     }
   }
 
-  // timeout fix is recommended after any reception with active timeout
-  state = fixImplicitTimeout();
-  if(state != ERR_NONE) {
-    return(state);
+  // fix timeout in implicit LoRa mode
+  if(((_headerType == SX126X_LORA_HEADER_IMPLICIT) && (getPacketType() == SX126X_PACKET_TYPE_LORA))) {
+    state = fixImplicitTimeout();
+    RADIOLIB_ASSERT(state);
   }
 
   // read the received data
@@ -273,9 +302,7 @@ int16_t SX126x::transmitDirect(uint32_t frf) {
   if(frf != 0) {
     state = setRfFrequency(frf);
   }
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // start transmitting
   uint8_t data[] = {SX126X_CMD_NOP};
@@ -295,30 +322,24 @@ int16_t SX126x::scanChannel() {
 
   // set mode to standby
   int16_t state = standby();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set DIO pin mapping
   state = setDioIrqParams(SX126X_IRQ_CAD_DETECTED | SX126X_IRQ_CAD_DONE, SX126X_IRQ_CAD_DETECTED | SX126X_IRQ_CAD_DONE);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // clear interrupt flags
   state = clearIrqStatus();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set mode to CAD
   state = setCad();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // wait for channel activity detected or timeout
-  while(!digitalRead(_mod->getInt0()));
+  while(!digitalRead(_mod->getIrq())) {
+    yield();
+  }
 
   // check CAD result
   uint16_t cadResult = getIrqStatus();
@@ -335,9 +356,12 @@ int16_t SX126x::scanChannel() {
   return(ERR_UNKNOWN);
 }
 
-int16_t SX126x::sleep() {
-  uint8_t data[] = {SX126X_SLEEP_START_COLD | SX126X_SLEEP_RTC_OFF};
-  int16_t state = SPIwriteCommand(SX126X_CMD_SET_SLEEP, data, 1, false);
+int16_t SX126x::sleep(bool retainConfig) {
+  uint8_t sleepMode = SX126X_SLEEP_START_WARM | SX126X_SLEEP_RTC_OFF;
+  if(!retainConfig) {
+    sleepMode = SX126X_SLEEP_START_COLD | SX126X_SLEEP_RTC_OFF;
+  }
+  int16_t state = SPIwriteCommand(SX126X_CMD_SET_SLEEP, &sleepMode, 1, false);
 
   // wait for SX126x to safely enter sleep mode
   delayMicroseconds(500);
@@ -355,11 +379,11 @@ int16_t SX126x::standby(uint8_t mode) {
 }
 
 void SX126x::setDio1Action(void (*func)(void)) {
-  attachInterrupt(digitalPinToInterrupt(_mod->getInt0()), func, RISING);
+  attachInterrupt(digitalPinToInterrupt(_mod->getIrq()), func, RISING);
 }
 
-void SX126x::setDio2Action(void (*func)(void)) {
-  attachInterrupt(digitalPinToInterrupt(_mod->getInt1()), func, RISING);
+void SX126x::clearDio1Action() {
+  detachInterrupt(digitalPinToInterrupt(_mod->getIrq()));
 }
 
 int16_t SX126x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
@@ -380,76 +404,49 @@ int16_t SX126x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
   int16_t state = ERR_NONE;
   uint8_t modem = getPacketType();
   if(modem == SX126X_PACKET_TYPE_LORA) {
-    state = setPacketParams(_preambleLength, _crcType, len);
+    state = setPacketParams(_preambleLength, _crcType, len, _headerType);
   } else if(modem == SX126X_PACKET_TYPE_GFSK) {
     state = setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, _packetType, len);
   } else {
     return(ERR_UNKNOWN);
   }
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set DIO mapping
   state = setDioIrqParams(SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT, SX126X_IRQ_TX_DONE);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set buffer pointers
   state = setBufferBaseAddress();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // write packet to buffer
   state = writeBuffer(data, len);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // clear interrupt flags
   state = clearIrqStatus();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // fix sensitivity
   state = fixSensitivity();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // start transmission
   state = setTx(SX126X_TX_TIMEOUT_NONE);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // wait for BUSY to go low (= PA ramp up done)
-  while(digitalRead(_mod->getRx()));
+  while(digitalRead(_mod->getGpio())) {
+    yield();
+  }
 
   return(state);
 }
 
 int16_t SX126x::startReceive(uint32_t timeout) {
-  // set DIO mapping
-  int16_t state = setDioIrqParams(SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT, SX126X_IRQ_RX_DONE);
-  if(state != ERR_NONE) {
-    return(state);
-  }
-
-  // set buffer pointers
-  state = setBufferBaseAddress();
-  if(state != ERR_NONE) {
-    return(state);
-  }
-
-  // clear interrupt flags
-  state = clearIrqStatus();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  int16_t state = startReceiveCommon();
+  RADIOLIB_ASSERT(state);
 
   // set mode to receive
   state = setRx(timeout);
@@ -457,18 +454,105 @@ int16_t SX126x::startReceive(uint32_t timeout) {
   return(state);
 }
 
+int16_t SX126x::startReceiveDutyCycle(uint32_t rxPeriod, uint32_t sleepPeriod) {
+  // datasheet claims time to go to sleep is ~500us, same to wake up, compensate for that with 1 ms + TCXO delay
+  uint32_t transitionTime = _tcxoDelay + 1000;
+  sleepPeriod -= transitionTime;
+
+  // divide by 15.625
+  uint32_t rxPeriodRaw = (rxPeriod * 8) / 125;
+  uint32_t sleepPeriodRaw = (sleepPeriod * 8) / 125;
+
+  // check 24 bit limit and zero value (likely not intended)
+  if((rxPeriodRaw & 0xFF000000) || (rxPeriodRaw == 0)) {
+    return(ERR_INVALID_RX_PERIOD);
+  }
+
+  // this check of the high byte also catches underflow when we subtracted transitionTime
+  if((sleepPeriodRaw & 0xFF000000) || (sleepPeriodRaw == 0)) {
+    return(ERR_INVALID_SLEEP_PERIOD);
+  }
+
+  int16_t state = startReceiveCommon();
+  RADIOLIB_ASSERT(state);
+
+  uint8_t data[6] = {(uint8_t)((rxPeriodRaw >> 16) & 0xFF), (uint8_t)((rxPeriodRaw >> 8) & 0xFF), (uint8_t)(rxPeriodRaw & 0xFF),
+                     (uint8_t)((sleepPeriodRaw >> 16) & 0xFF), (uint8_t)((sleepPeriodRaw >> 8) & 0xFF), (uint8_t)(sleepPeriodRaw & 0xFF)};
+  return(SPIwriteCommand(SX126X_CMD_SET_RX_DUTY_CYCLE, data, 6));
+}
+
+int16_t SX126x::startReceiveDutyCycleAuto(uint16_t senderPreambleLength, uint16_t minSymbols) {
+  if(senderPreambleLength == 0) {
+    senderPreambleLength = _preambleLength;
+  }
+
+  // worst case is that the sender starts transmiting when we're just less than minSymbols from going back to sleep.
+  // in this case, we don't catch minSymbols before going to sleep,
+  // so we must be awake for at least that long before the sender stops transmitting.
+  uint16_t sleepSymbols = senderPreambleLength - 2 * minSymbols;
+
+  // if we're not to sleep at all, just use the standard startReceive.
+  if(2 * minSymbols > senderPreambleLength) {
+    return(startReceive());
+  }
+
+  uint32_t symbolLength = ((uint32_t)(10 * 1000) << _sf) / (10 * _bwKhz);
+  uint32_t sleepPeriod = symbolLength * sleepSymbols;
+  RADIOLIB_DEBUG_PRINT(F("Auto sleep period: "));
+  RADIOLIB_DEBUG_PRINTLN(sleepPeriod);
+
+  // when the unit detects a preamble, it starts a timer that will timeout if it doesn't receive a header in time.
+  // the duration is sleepPeriod + 2 * wakePeriod.
+  // The sleepPeriod doesn't take into account shutdown and startup time for the unit (~1ms)
+  // We need to ensure that the timout is longer than senderPreambleLength.
+  // So we must satisfy: wakePeriod > (preamblePeriod - (sleepPeriod - 1000)) / 2. (A)
+  // we also need to ensure the unit is awake to see at least minSymbols. (B)
+  uint32_t wakePeriod = max(
+    (symbolLength * (senderPreambleLength + 1) - (sleepPeriod - 1000)) / 2, // (A)
+    symbolLength * (minSymbols + 1)); //(B)
+  RADIOLIB_DEBUG_PRINT(F("Auto wake period: "));
+  RADIOLIB_DEBUG_PRINTLN(wakePeriod);
+
+  //If our sleep period is shorter than our transition time, just use the standard startReceive
+  if(sleepPeriod < _tcxoDelay + 1016) {
+    return(startReceive());
+  }
+
+  return(startReceiveDutyCycle(wakePeriod, sleepPeriod));
+}
+
+int16_t SX126x::startReceiveCommon() {
+  // set DIO mapping
+  int16_t state = setDioIrqParams(SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT | SX126X_IRQ_CRC_ERR | SX126X_IRQ_HEADER_ERR, SX126X_IRQ_RX_DONE);
+  RADIOLIB_ASSERT(state);
+
+  // set buffer pointers
+  state = setBufferBaseAddress();
+  RADIOLIB_ASSERT(state);
+
+  // clear interrupt flags
+  state = clearIrqStatus();
+
+  // set implicit mode and expected len if applicable
+  if(_headerType == SX126X_LORA_HEADER_IMPLICIT && getPacketType() == SX126X_PACKET_TYPE_LORA) {
+    state = setPacketParams(_preambleLength, _crcType, _implicitLen, _headerType);
+    RADIOLIB_ASSERT(state);
+  }
+
+  return(state);
+}
+
 int16_t SX126x::readData(uint8_t* data, size_t len) {
   // set mode to standby
   int16_t state = standby();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // check integrity CRC
   uint16_t irq = getIrqStatus();
+  int16_t crcState = ERR_NONE;
   if((irq & SX126X_IRQ_CRC_ERR) || (irq & SX126X_IRQ_HEADER_ERR)) {
     clearIrqStatus();
-    return(ERR_CRC_MISMATCH);
+    crcState = ERR_CRC_MISMATCH;
   }
 
   // get packet length
@@ -479,12 +563,13 @@ int16_t SX126x::readData(uint8_t* data, size_t len) {
 
   // read packet data
   state = readBuffer(data, length);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // clear interrupt flags
   state = clearIrqStatus();
+
+  // check if CRC failed - this is done after reading data to give user the option to keep them
+  RADIOLIB_ASSERT(crcState);
 
   return(state);
 }
@@ -495,29 +580,46 @@ int16_t SX126x::setBandwidth(float bw) {
     return(ERR_WRONG_MODEM);
   }
 
-  // check alowed bandwidth values
-  if(abs(bw - 7.8) <= 0.001) {
-    _bw = SX126X_LORA_BW_7_8;
-  } else if(abs(bw - 10.4) <= 0.001) {
-    _bw = SX126X_LORA_BW_10_4;
-  } else if(abs(bw - 15.6) <= 0.001) {
-    _bw = SX126X_LORA_BW_15_6;
-  } else if(abs(bw - 20.8) <= 0.001) {
-    _bw = SX126X_LORA_BW_20_8;
-  } else if(abs(bw - 31.25) <= 0.001) {
-    _bw = SX126X_LORA_BW_31_25;
-  } else if(abs(bw - 41.7) <= 0.001) {
-    _bw = SX126X_LORA_BW_41_7;
-  } else if(abs(bw - 62.5) <= 0.001) {
-    _bw = SX126X_LORA_BW_62_5;
-  } else if(abs(bw - 125.0) <= 0.001) {
-    _bw = SX126X_LORA_BW_125_0;
-  } else if(abs(bw - 250.0) <= 0.001) {
-    _bw = SX126X_LORA_BW_250_0;
-  } else if(abs(bw - 500.0) <= 0.001) {
-    _bw = SX126X_LORA_BW_500_0;
-  } else {
+  // ensure byte conversion doesn't overflow:
+  if(!((bw > 0) && (bw < 510))) {
     return(ERR_INVALID_BANDWIDTH);
+  }
+
+  // check alowed bandwidth values
+  uint8_t bw_div2 = bw / 2 + 0.01;
+  switch (bw_div2)  {
+    case 3: // 7.8:
+      _bw = SX126X_LORA_BW_7_8;
+      break;
+    case 5: // 10.4:
+      _bw = SX126X_LORA_BW_10_4;
+      break;
+    case 7: // 15.6:
+      _bw = SX126X_LORA_BW_15_6;
+      break;
+    case 10: // 20.8:
+      _bw = SX126X_LORA_BW_20_8;
+      break;
+    case 15: // 31.25:
+      _bw = SX126X_LORA_BW_31_25;
+      break;
+    case 20: // 41.7:
+      _bw = SX126X_LORA_BW_41_7;
+      break;
+    case 31: // 62.5:
+      _bw = SX126X_LORA_BW_62_5;
+      break;
+    case 62: // 125.0:
+      _bw = SX126X_LORA_BW_125_0;
+      break;
+    case 125: // 250.0
+      _bw = SX126X_LORA_BW_250_0;
+      break;
+    case 250: // 500.0
+      _bw = SX126X_LORA_BW_500_0;
+      break;
+    default:
+      return(ERR_INVALID_BANDWIDTH);
   }
 
   // update modulation parameters
@@ -557,18 +659,23 @@ int16_t SX126x::setCodingRate(uint8_t cr) {
   return(setModulationParams(_sf, _bw, _cr));
 }
 
-int16_t SX126x::setSyncWord(uint16_t syncWord) {
+int16_t SX126x::setSyncWord(uint8_t syncWord, uint8_t controlBits) {
   // check active modem
   if(getPacketType() != SX126X_PACKET_TYPE_LORA) {
     return(ERR_WRONG_MODEM);
   }
 
   // update register
-  uint8_t data[2] = {(uint8_t)((syncWord >> 8) & 0xFF), (uint8_t)(syncWord & 0xFF)};
+  uint8_t data[2] = {(uint8_t)((syncWord & 0xF0) | ((controlBits & 0xF0) >> 4)), (uint8_t)(((syncWord & 0x0F) << 4) | (controlBits & 0x0F))};
   return(writeRegister(SX126X_REG_LORA_SYNC_WORD_MSB, data, 2));
 }
 
 int16_t SX126x::setCurrentLimit(float currentLimit) {
+  // check allowed range
+  if(!((currentLimit >= 0) && (currentLimit <= 140))) {
+    return(ERR_INVALID_CURRENT_LIMIT);
+  }
+
   // calculate raw value
   uint8_t rawLimit = (uint8_t)(currentLimit / 2.5);
 
@@ -576,11 +683,20 @@ int16_t SX126x::setCurrentLimit(float currentLimit) {
   return(writeRegister(SX126X_REG_OCP_CONFIGURATION, &rawLimit, 1));
 }
 
+float SX126x::getCurrentLimit() {
+  // get the raw value
+  uint8_t ocp = 0;
+  readRegister(SX126X_REG_OCP_CONFIGURATION, &ocp, 1);
+
+  // return the actual value
+  return((float)ocp * 2.5);
+}
+
 int16_t SX126x::setPreambleLength(uint16_t preambleLength) {
   uint8_t modem = getPacketType();
   if(modem == SX126X_PACKET_TYPE_LORA) {
     _preambleLength = preambleLength;
-    return(setPacketParams(_preambleLength, _crcType));
+    return(setPacketParams(_preambleLength, _crcType, _implicitLen, _headerType));
   } else if(modem == SX126X_PACKET_TYPE_GFSK) {
     _preambleLengthFSK = preambleLength;
     return(setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, _packetType));
@@ -739,9 +855,7 @@ int16_t SX126x::setSyncWord(uint8_t* syncWord, uint8_t len) {
 
   // write sync word
   int16_t state = writeRegister(SX126X_REG_SYNC_WORD_0, syncWord, len);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // update packet parameters
   _syncWordLength = len * 8;
@@ -768,9 +882,7 @@ int16_t SX126x::setSyncBits(uint8_t *syncWord, uint8_t bitsLen) {
 
   // write sync word
   int16_t state = writeRegister(SX126X_REG_SYNC_WORD_0, syncWord, bytesLen);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // update packet parameters
   _syncWordLength = bitsLen;
@@ -788,9 +900,7 @@ int16_t SX126x::setNodeAddress(uint8_t nodeAddr) {
   // enable address filtering (node only)
   _addrComp = SX126X_GFSK_ADDRESS_FILT_NODE;
   int16_t state = setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, _packetType);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set node address
   state = writeRegister(SX126X_REG_NODE_ADDRESS, &nodeAddr, 1);
@@ -807,9 +917,7 @@ int16_t SX126x::setBroadcastAddress(uint8_t broadAddr) {
   // enable address filtering (node and broadcast)
   _addrComp = SX126X_GFSK_ADDRESS_FILT_NODE_BROADCAST;
   int16_t state = setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, _packetType);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set broadcast address
   state = writeRegister(SX126X_REG_BROADCAST_ADDRESS, &broadAddr, 1);
@@ -857,16 +965,12 @@ int16_t SX126x::setCRC(uint8_t len, uint16_t initial, uint16_t polynomial, bool 
     }
 
     int16_t state = setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, _packetType);
-    if(state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
 
     // write initial CRC value
     uint8_t data[2] = {(uint8_t)((initial >> 8) & 0xFF), (uint8_t)(initial & 0xFF)};
     state = writeRegister(SX126X_REG_CRC_INITIAL_MSB, data, 2);
-    if(state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
 
     // write CRC polynomial value
     data[0] = (uint8_t)((polynomial >> 8) & 0xFF);
@@ -885,7 +989,7 @@ int16_t SX126x::setCRC(uint8_t len, uint16_t initial, uint16_t polynomial, bool 
       _crcType = SX126X_LORA_CRC_OFF;
     }
 
-    return(setPacketParams(_preambleLength, _crcType));
+    return(setPacketParams(_preambleLength, _crcType, _implicitLen, _headerType));
   }
 
   return(ERR_UNKNOWN);
@@ -903,9 +1007,7 @@ int16_t SX126x::setWhitening(bool enabled, uint16_t initial) {
     _whitening = SX126X_GFSK_WHITENING_OFF;
 
     state = setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, _packetType);
-    if(state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
   } else {
     // enable whitening
     _whitening = SX126X_GFSK_WHITENING_ON;
@@ -916,21 +1018,15 @@ int16_t SX126x::setWhitening(bool enabled, uint16_t initial) {
     // first read the actual value and mask 7 MSB which we can not change
     // if different value is written in 7 MSB, the Rx won't even work (tested on HW)
     state = readRegister(SX126X_REG_WHITENING_INITIAL_MSB, data, 1);
-    if(state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
+
     data[0] = (data[0] & 0xFE) | (uint8_t)((initial >> 8) & 0x01);
     data[1] = (uint8_t)(initial & 0xFF);
     state = writeRegister(SX126X_REG_WHITENING_INITIAL_MSB, data, 2);
-
-    if(state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
 
     state = setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, _packetType);
-    if(state != ERR_NONE) {
-      return(state);
-    }
+    RADIOLIB_ASSERT(state);
   }
   return(state);
 }
@@ -955,12 +1051,16 @@ float SX126x::getSNR() {
   // get last packet SNR from packet status
   uint32_t packetStatus = getPacketStatus();
   uint8_t snrPkt = (packetStatus >> 8) & 0xFF;
-  return(snrPkt/4.0);
+  if(snrPkt < 128) {
+    return(snrPkt/4.0);
+  } else {
+    return((snrPkt - 256)/4.0);
+  }
 }
 
 size_t SX126x::getPacketLength(bool update) {
   (void)update;
-  uint8_t rxBufStatus[2];
+  uint8_t rxBufStatus[2] = {0, 0};
   SPIreadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufStatus, 2);
   return((size_t)rxBufStatus[0]);
 }
@@ -974,24 +1074,58 @@ int16_t SX126x::variablePacketLengthMode(uint8_t maxLen) {
 }
 
 uint32_t SX126x::getTimeOnAir(size_t len) {
+  // everything is in microseconds to allow integer arithmetic
+  // some constants have .25, these are multiplied by 4, and have _x4 postfix to indicate that fact
   if(getPacketType() == SX126X_PACKET_TYPE_LORA) {
-    float symbolLength = (float)((uint32_t)(1) << _sf) / (float)_bwKhz;
-    float sfCoeff1 = 4.25;
-    float sfCoeff2 = 8.0;
+    uint32_t symbolLength_us = ((uint32_t)(1000 * 10) << _sf) / (_bwKhz * 10) ;
+    uint8_t sfCoeff1_x4 = 17; // (4.25 * 4)
+    uint8_t sfCoeff2 = 8;
     if(_sf == 5 || _sf == 6) {
-      sfCoeff1 = 6.25;
-      sfCoeff2 = 0.0;
+      sfCoeff1_x4 = 25; // 6.25 * 4
+      sfCoeff2 = 0;
     }
     uint8_t sfDivisor = 4*_sf;
-    if(symbolLength >= 16.0) {
+    if(symbolLength_us >= 16000) {
       sfDivisor = 4*(_sf - 2);
     }
-    float nSymbol = _preambleLength + sfCoeff1 + 8 + ceil(max(8.0 * len + (_crcType * 16.0) - 4.0 * _sf + sfCoeff2 + 20.0, 0.0) / sfDivisor) * (_cr + 4);
-    return((uint32_t)(symbolLength * nSymbol * 1000.0));
+    const int8_t bitsPerCrc = 16;
+    const int8_t N_symbol_header = _headerType == SX126X_LORA_HEADER_EXPLICIT ? 20 : 0;
+
+    // numerator of equation in section 6.1.4 of SX1268 datasheet v1.1 (might not actually be bitcount, but it has len * 8)
+    int16_t bitCount = (int16_t) 8 * len + _crcType * bitsPerCrc - 4 * _sf  + sfCoeff2 + N_symbol_header;
+    if(bitCount < 0) {
+      bitCount = 0;
+    }
+    // add (sfDivisor) - 1 to the numerator to give integer CEIL(...)
+    uint16_t nPreCodedSymbols = (bitCount + (sfDivisor - 1)) / (sfDivisor);
+
+    // preamble can be 65k, therefore nSymbol_x4 needs to be 32 bit
+    uint32_t nSymbol_x4 = (_preambleLength + 8) * 4 + sfCoeff1_x4 + nPreCodedSymbols * (_cr + 4) * 4;
+
+    return((symbolLength_us * nSymbol_x4) / 4);
   } else {
-    float brBps = ((float)(SX126X_CRYSTAL_FREQ) * 1000000.0 * 32.0) / (float)_br;
-    return((uint32_t)(((len * 8.0) / brBps) * 1000000.0));
+    return((len * 8 * _br) / (SX126X_CRYSTAL_FREQ * 32));
   }
+}
+
+int16_t SX126x::implicitHeader(size_t len) {
+  return(setHeaderType(SX126X_LORA_HEADER_IMPLICIT, len));
+}
+
+int16_t SX126x::explicitHeader() {
+  return(setHeaderType(SX126X_LORA_HEADER_EXPLICIT));
+}
+
+int16_t SX126x::setRegulatorLDO() {
+  return(setRegulatorMode(SX126X_REGULATOR_LDO));
+}
+
+int16_t SX126x::setRegulatorDCDC() {
+  return(setRegulatorMode(SX126X_REGULATOR_DC_DC));
+}
+
+int16_t SX126x::setEncoding(uint8_t encoding) {
+  return(setWhitening(encoding));
 }
 
 int16_t SX126x::setTCXO(float voltage, uint32_t delay) {
@@ -1031,10 +1165,10 @@ int16_t SX126x::setTCXO(float voltage, uint32_t delay) {
   data[2] = (uint8_t)((delayValue >> 8) & 0xFF);
   data[3] = (uint8_t)(delayValue & 0xFF);
 
-  // enable TCXO control on DIO3
-  SPIwriteCommand(SX126X_CMD_SET_DIO3_AS_TCXO_CTRL, data, 4);
+  _tcxoDelay = delay;
 
-  return(ERR_NONE);
+  // enable TCXO control on DIO3
+  return(SPIwriteCommand(SX126X_CMD_SET_DIO3_AS_TCXO_CTRL, data, 4));
 }
 
 int16_t SX126x::setDio2AsRfSwitch(bool enable) {
@@ -1099,7 +1233,7 @@ int16_t SX126x::setDioIrqParams(uint16_t irqMask, uint16_t dio1Mask, uint16_t di
 }
 
 uint16_t SX126x::getIrqStatus() {
-  uint8_t data[2];
+  uint8_t data[2] = {0, 0};;
   SPIreadCommand(SX126X_CMD_GET_IRQ_STATUS, data, 2);
   return(((uint16_t)(data[0]) << 8) | data[1]);
 }
@@ -1129,30 +1263,6 @@ int16_t SX126x::setTxParams(uint8_t power, uint8_t rampTime) {
   return(SPIwriteCommand(SX126X_CMD_SET_TX_PARAMS, data, 2));
 }
 
-int16_t SX126x::setOptimalHiPowerPaConfig(int8_t * inOutPower) {
-  // set PA config for optimal consumption as described in section 13-21 of SX1268 datasheet v1.1
-  // the final column of Table 13-21 suggests that the value passed in SetTxParams
-  // is actually scaled depending on the parameters of setPaConfig
-  int16_t state;
-  if (*inOutPower >= 21) {
-    state = SX126x::setPaConfig(0x04, SX126X_PA_CONFIG_SX1262_8, SX126X_PA_CONFIG_HP_MAX/*0x07*/);
-  }
-  else if (*inOutPower >= 18) {
-    state = SX126x::setPaConfig(0x03, SX126X_PA_CONFIG_SX1262_8, 0x05);
-    // datasheet instructs request 22 dBm for 20 dBm actual output power
-    *inOutPower += 2;
-  } else if (*inOutPower >= 15) {
-    state = SX126x::setPaConfig(0x02, SX126X_PA_CONFIG_SX1262_8, 0x03);
-    // datasheet instructs request 22 dBm for 17 dBm actual output power
-    *inOutPower += 5;
-  } else {
-    state = SX126x::setPaConfig(0x02, SX126X_PA_CONFIG_SX1262_8, 0x02);
-    // datasheet instructs request 22 dBm for 14 dBm actual output power.
-    *inOutPower += 8;
-  }
-  return state;
-}
-
 int16_t SX126x::setPacketMode(uint8_t mode, uint8_t len) {
   // check active modem
   if(getPacketType() != SX126X_PACKET_TYPE_GFSK) {
@@ -1161,12 +1271,27 @@ int16_t SX126x::setPacketMode(uint8_t mode, uint8_t len) {
 
   // set requested packet mode
   int16_t state = setPacketParamsFSK(_preambleLengthFSK, _crcTypeFSK, _syncWordLength, _addrComp, _whitening, mode, len);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // update cached value
   _packetType = mode;
+  return(state);
+}
+
+int16_t SX126x::setHeaderType(uint8_t headerType, size_t len) {
+  // check active modem
+  if(getPacketType() != SX126X_PACKET_TYPE_LORA) {
+    return(ERR_WRONG_MODEM);
+  }
+
+  // set requested packet mode
+  int16_t state = setPacketParams(_preambleLength, _crcType, len, headerType);
+  RADIOLIB_ASSERT(state);
+
+  // update cached value
+  _headerType = headerType;
+  _implicitLen = len;
+
   return(state);
 }
 
@@ -1198,7 +1323,8 @@ int16_t SX126x::setModulationParamsFSK(uint32_t br, uint8_t pulseShape, uint8_t 
 }
 
 int16_t SX126x::setPacketParams(uint16_t preambleLength, uint8_t crcType, uint8_t payloadLength, uint8_t headerType, uint8_t invertIQ) {
-  fixInvertedIQ(invertIQ);
+  int16_t state = fixInvertedIQ(invertIQ);
+  RADIOLIB_ASSERT(state);
   uint8_t data[6] = {(uint8_t)((preambleLength >> 8) & 0xFF), (uint8_t)(preambleLength & 0xFF), headerType, payloadLength, crcType, invertIQ};
   return(SPIwriteCommand(SX126X_CMD_SET_PACKET_PARAMS, data, 6));
 }
@@ -1215,20 +1341,25 @@ int16_t SX126x::setBufferBaseAddress(uint8_t txBaseAddress, uint8_t rxBaseAddres
   return(SPIwriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, data, 2));
 }
 
+int16_t SX126x::setRegulatorMode(uint8_t mode) {
+  uint8_t data[1] = {mode};
+  return(SPIwriteCommand(SX126X_CMD_SET_REGULATOR_MODE, data, 1));
+}
+
 uint8_t SX126x::getStatus() {
-  uint8_t data[1];
-  SPIreadCommand(SX126X_CMD_GET_STATUS, data, 1);
-  return(data[0]);
+  uint8_t data = 0;
+  SPIreadCommand(SX126X_CMD_GET_STATUS, &data, 1);
+  return(data);
 }
 
 uint32_t SX126x::getPacketStatus() {
-  uint8_t data[3];
+  uint8_t data[3] = {0, 0, 0};
   SPIreadCommand(SX126X_CMD_GET_PACKET_STATUS, data, 3);
   return((((uint32_t)data[0]) << 16) | (((uint32_t)data[1]) << 8) | (uint32_t)data[2]);
 }
 
 uint16_t SX126x::getDeviceErrors() {
-  uint8_t data[2];
+  uint8_t data[2] = {0, 0};
   SPIreadCommand(SX126X_CMD_GET_DEVICE_ERRORS, data, 2);
   uint16_t opError = (((uint16_t)data[0] & 0xFF) << 8) & ((uint16_t)data[1]);
   return(opError);
@@ -1242,8 +1373,7 @@ int16_t SX126x::clearDeviceErrors() {
 int16_t SX126x::setFrequencyRaw(float freq) {
   // calculate raw value
   uint32_t frf = (freq * (uint32_t(1) << SX126X_DIV_EXPONENT)) / SX126X_CRYSTAL_FREQ;
-  setRfFrequency(frf);
-  return(ERR_NONE);
+  return(setRfFrequency(frf));
 }
 
 int16_t SX126x::fixSensitivity() {
@@ -1253,9 +1383,7 @@ int16_t SX126x::fixSensitivity() {
   // read current sensitivity configuration
   uint8_t sensitivityConfig = 0;
   int16_t state = readRegister(SX126X_REG_SENSITIVITY_CONFIG, &sensitivityConfig, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // fix the value for LoRa with 500 kHz bandwidth
   if((getPacketType() == SX126X_PACKET_TYPE_LORA) && (abs(_bwKhz - 500.0) <= 0.001)) {
@@ -1273,9 +1401,7 @@ int16_t SX126x::fixPaClamping() {
   // read current clamping configuration
   uint8_t clampConfig = 0;
   int16_t state = readRegister(SX126X_REG_TX_CLAMP_CONFIG, &clampConfig, 1);
-  if (state != ERR_NONE) {
-    return state;
-  }
+  RADIOLIB_ASSERT(state);
 
   // update with the new value
   clampConfig |= 0x1E;
@@ -1286,19 +1412,20 @@ int16_t SX126x::fixImplicitTimeout() {
   // fixes timeout in implicit header mode
   // see SX1262/SX1268 datasheet, chapter 15 Known Limitations, section 15.3 for details
 
+  //check if we're in implicit LoRa mode
+  if(!((_headerType == SX126X_LORA_HEADER_IMPLICIT) && (getPacketType() == SX126X_PACKET_TYPE_LORA))) {
+    return(ERR_WRONG_MODEM);
+  }
+
   // stop RTC counter
   uint8_t rtcStop = 0x00;
   int16_t state = writeRegister(SX126X_REG_RTC_STOP, &rtcStop, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // read currently active event
   uint8_t rtcEvent = 0;
   state = readRegister(SX126X_REG_RTC_EVENT, &rtcEvent, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // clear events
   rtcEvent |= 0x02;
@@ -1312,9 +1439,7 @@ int16_t SX126x::fixInvertedIQ(uint8_t iqConfig) {
   // read current IQ configuration
   uint8_t iqConfigCurrent = 0;
   int16_t state = readRegister(SX126X_REG_IQ_CONFIG, &iqConfigCurrent, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set correct IQ configuration
   if(iqConfig == SX126X_LORA_IQ_STANDARD) {
@@ -1328,33 +1453,20 @@ int16_t SX126x::fixInvertedIQ(uint8_t iqConfig) {
 }
 
 int16_t SX126x::config(uint8_t modem) {
-  // set regulator mode
-  uint8_t data[7];
-  data[0] = SX126X_REGULATOR_DC_DC;
-  int16_t state = SPIwriteCommand(SX126X_CMD_SET_REGULATOR_MODE, data, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
-
   // reset buffer base address
-  state = setBufferBaseAddress();
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  int16_t state = setBufferBaseAddress();
+  RADIOLIB_ASSERT(state);
 
   // set modem
+  uint8_t data[7];
   data[0] = modem;
   state = SPIwriteCommand(SX126X_CMD_SET_PACKET_TYPE, data, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set Rx/Tx fallback mode to STDBY_RC
   data[0] = SX126X_RX_TX_FALLBACK_MODE_STDBY_RC;
   state = SPIwriteCommand(SX126X_CMD_SET_RX_TX_FALLBACK_MODE, data, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // set CAD parameters
   data[0] = SX126X_CAD_ON_8_SYMB;
@@ -1365,27 +1477,23 @@ int16_t SX126x::config(uint8_t modem) {
   data[5] = 0x00;
   data[6] = 0x00;
   state = SPIwriteCommand(SX126X_CMD_SET_CAD_PARAMS, data, 7);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // clear IRQ
   state = clearIrqStatus();
   state |= setDioIrqParams(SX126X_IRQ_NONE, SX126X_IRQ_NONE);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // calibrate all blocks
   data[0] = SX126X_CALIBRATE_ALL;
   state = SPIwriteCommand(SX126X_CMD_CALIBRATE, data, 1);
-  if(state != ERR_NONE) {
-    return(state);
-  }
+  RADIOLIB_ASSERT(state);
 
   // wait for calibration completion
-  delayMicroseconds(1);
-  while(digitalRead(_mod->getRx()));
+  delay(5);
+  while(digitalRead(_mod->getGpio())) {
+    yield();
+  }
 
   return(ERR_NONE);
 }
@@ -1419,9 +1527,8 @@ int16_t SX126x::SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* d
   digitalWrite(_mod->getCs(), LOW);
 
   // ensure BUSY is low (state meachine ready)
-  RADIOLIB_VERBOSE_PRINTLN(F("Wait for BUSY ... "));
   uint32_t start = millis();
-  while(digitalRead(_mod->getRx())) {
+  while(digitalRead(_mod->getGpio())) {
     if(millis() - start >= timeout) {
       return(ERR_SPI_CMD_TIMEOUT);
     }
@@ -1488,11 +1595,11 @@ int16_t SX126x::SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* d
   if(waitForBusy) {
     delayMicroseconds(1);
     start = millis();
-    while(digitalRead(_mod->getRx())) {
-        if(millis() - start >= timeout) {
-          status = SX126X_STATUS_CMD_TIMEOUT;
-          break;
-        }
+    while(digitalRead(_mod->getGpio())) {
+      if(millis() - start >= timeout) {
+        status = SX126X_STATUS_CMD_TIMEOUT;
+        break;
+      }
     }
   }
 
@@ -1534,6 +1641,13 @@ int16_t SX126x::SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* d
       RADIOLIB_VERBOSE_PRINTLN();
     }
     RADIOLIB_VERBOSE_PRINTLN();
+  #else
+    // some faster platforms require a short delay here
+    // not sure why, but it seems that long enough SPI transaction
+    // (e.g. setPacketParams for GFSK) will fail without it
+    #if defined(ARDUINO_ARCH_STM32)
+      delay(1);
+    #endif
   #endif
 
   // parse status
