@@ -52,6 +52,14 @@ int16_t SX1278::beginFSK(float freq, float br, float freqDev, float rxBw, int8_t
   return(state);
 }
 
+void SX1278::reset() {
+  Module::pinMode(_mod->getRst(), OUTPUT);
+  Module::digitalWrite(_mod->getRst(), LOW);
+  delayMicroseconds(100);
+  Module::digitalWrite(_mod->getRst(), HIGH);
+  delay(5);
+}
+
 int16_t SX1278::setFrequency(float freq) {
   // check frequency range
   if((freq < 137.0) || (freq > 525.0)) {
@@ -483,6 +491,10 @@ int16_t SX1278::configFSK() {
 
   // set fast PLL hop
   state = _mod->SPIsetRegValue(SX1278_REG_PLL_HOP, SX127X_FAST_HOP_ON, 7, 7);
+  RADIOLIB_ASSERT(state);
+
+  // set Gauss filter BT product to 0.5
+  state = _mod->SPIsetRegValue(SX127X_REG_PA_RAMP, SX1278_FSK_GAUSSIAN_0_5, 6, 5);
 
   return(state);
 }
