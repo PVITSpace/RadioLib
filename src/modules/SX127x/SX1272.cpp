@@ -60,16 +60,13 @@ int16_t SX1272::beginFSK(float freq, float br, float rxBw, float freqDev, int8_t
 void SX1272::reset() {
   Module::pinMode(_mod->getRst(), OUTPUT);
   Module::digitalWrite(_mod->getRst(), HIGH);
-  delayMicroseconds(100);
+  delay(1);
   Module::digitalWrite(_mod->getRst(), LOW);
   delay(5);
 }
 
 int16_t SX1272::setFrequency(float freq) {
-  // check frequency range
-  if((freq < 860.0) || (freq > 1020.0)) {
-    return(ERR_INVALID_FREQUENCY);
-  }
+  RADIOLIB_CHECK_RANGE(freq, 860.0, 1020.0, ERR_INVALID_FREQUENCY);
 
   // set frequency and if successful, save the new setting
   int16_t state = SX127x::setFrequencyRaw(freq);

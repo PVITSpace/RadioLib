@@ -34,10 +34,9 @@ void setup() {
   // carrier frequency:           434.0 MHz
   // bit rate:                    48.0 kbps
   // frequency deviation:         50.0 kHz
-  // Rx bandwidth:                125.0 kHz
-  // output power:                13 dBm
+  // Rx bandwidth:                225.1 kHz
+  // output power:                11 dBm
   // sync word:                   0x2D  0x01
-  // OOK modulation:              disabled
   int state = fsk.begin();
   if (state == ERR_NONE) {
     Serial.println(F("success!"));
@@ -67,11 +66,6 @@ void loop() {
   if (state == ERR_NONE) {
     // the packet was successfully transmitted
     Serial.println(F(" success!"));
-
-    // print measured data rate
-    Serial.print(F("[Si4432] Datarate:\t"));
-    Serial.print(fsk.getDataRate());
-    Serial.println(F(" bps"));
 
   } else if (state == ERR_PACKET_TOO_LONG) {
     // the supplied packet was longer than 256 bytes

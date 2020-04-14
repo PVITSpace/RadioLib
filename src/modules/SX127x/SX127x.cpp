@@ -43,7 +43,7 @@ int16_t SX127x::begin(uint8_t chipVersion, uint8_t syncWord, uint8_t currentLimi
   state = SX127x::setPreambleLength(preambleLength);
   RADIOLIB_ASSERT(state);
 
-  // initalize internal variables
+  // initialize internal variables
   _dataRate = 0.0;
 
   return(state);
@@ -144,6 +144,7 @@ int16_t SX127x::transmit(uint8_t* data, size_t len, uint8_t addr) {
     // wait for packet transmission or timeout
     start = micros();
     while(!digitalRead(_mod->getIrq())) {
+      yield();
       if(micros() - start > timeout) {
         clearIRQFlags();
         return(ERR_TX_TIMEOUT);
@@ -161,6 +162,7 @@ int16_t SX127x::transmit(uint8_t* data, size_t len, uint8_t addr) {
     // wait for transmission end or timeout
     start = micros();
     while(!digitalRead(_mod->getIrq())) {
+      yield();
       if(micros() - start > timeout) {
         clearIRQFlags();
         standby();
@@ -194,6 +196,7 @@ int16_t SX127x::receive(uint8_t* data, size_t len) {
 
     // wait for packet reception or timeout (100 LoRa symbols)
     while(!digitalRead(_mod->getIrq())) {
+      yield();
       if(digitalRead(_mod->getGpio())) {
         clearIRQFlags();
         return(ERR_RX_TIMEOUT);
@@ -211,6 +214,7 @@ int16_t SX127x::receive(uint8_t* data, size_t len) {
     // wait for packet reception or timeout
     uint32_t start = micros();
     while(!digitalRead(_mod->getIrq())) {
+      yield();
       if(micros() - start > timeout) {
         clearIRQFlags();
         return(ERR_RX_TIMEOUT);
@@ -247,6 +251,7 @@ int16_t SX127x::scanChannel() {
 
   // wait for channel activity detected or timeout
   while(!digitalRead(_mod->getIrq())) {
+    yield();
     if(digitalRead(_mod->getGpio())) {
       clearIRQFlags();
       return(PREAMBLE_DETECTED);
@@ -376,14 +381,14 @@ void SX127x::clearDio0Action() {
 }
 
 void SX127x::setDio1Action(void (*func)(void)) {
-  if(_mod->getGpio() != NC) {
+  if(_mod->getGpio() != RADIOLIB_NC) {
     return;
   }
   attachInterrupt(digitalPinToInterrupt(_mod->getGpio()), func, RISING);
 }
 
 void SX127x::clearDio1Action() {
-  if(_mod->getGpio() != NC) {
+  if(_mod->getGpio() != RADIOLIB_NC) {
     return;
   }
   detachInterrupt(digitalPinToInterrupt(_mod->getGpio()));
@@ -647,13 +652,9 @@ int16_t SX127x::setBitRate(float br) {
 
   // check allowed bit rate
   if(_ook) {
-    if((br < 1.2) || (br > 32.768)) {
-      return(ERR_INVALID_BIT_RATE);
-    }
+    RADIOLIB_CHECK_RANGE(br, 1.2, 32.768, ERR_INVALID_BIT_RATE);
   } else {
-    if((br < 1.2) || (br > 300.0)) {
-      return(ERR_INVALID_BIT_RATE);
-    }
+    RADIOLIB_CHECK_RANGE(br, 1.2, 300.0, ERR_INVALID_BIT_RATE);
   }
 
   // set mode to STANDBY
@@ -701,10 +702,7 @@ int16_t SX127x::setRxBandwidth(float rxBw) {
     return(ERR_WRONG_MODEM);
   }
 
-  // check allowed bandwidth values
-  if(!((rxBw >= 2.6) && (rxBw <= 250.0))) {
-    return(ERR_INVALID_RX_BANDWIDTH);
-  }
+  RADIOLIB_CHECK_RANGE(rxBw, 2.6, 250.0, ERR_INVALID_RX_BANDWIDTH);
 
   // set mode to STANDBY
   int16_t state = setMode(SX127X_STANDBY);
@@ -738,10 +736,7 @@ int16_t SX127x::setSyncWord(uint8_t* syncWord, size_t len) {
     return(ERR_WRONG_MODEM);
   }
 
-  // check constraints
-  if((len > 8) || (len < 1)) {
-    return(ERR_INVALID_SYNC_WORD);
-  }
+  RADIOLIB_CHECK_RANGE(len, 1, 8, ERR_INVALID_SYNC_WORD);
 
   // sync word must not contain value 0x00
   for(uint8_t i = 0; i < len; i++) {
@@ -887,9 +882,7 @@ int16_t SX127x::setRSSIConfig(uint8_t smoothingSamples, int8_t offset) {
     return(ERR_INVALID_NUM_SAMPLES);
   }
 
-  if(!((offset >= -16) && (offset <= 15))) {
-    return(ERR_INVALID_RSSI_OFFSET);
-  }
+  RADIOLIB_CHECK_RANGE(offset, -16, 15, ERR_INVALID_RSSI_OFFSET);
 
   // set new register values
   state = _mod->SPIsetRegValue(SX127X_REG_RSSI_CONFIG, offset, 7, 3);

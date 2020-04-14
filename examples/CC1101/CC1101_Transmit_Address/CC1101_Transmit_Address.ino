@@ -19,7 +19,7 @@
 // GDO0 pin:  2
 // RST pin:   unused
 // GDO2 pin:  3 (optional)
-CC1101 cc = new Module(10, 2, NC, 3);
+CC1101 cc = new Module(10, 2, RADIOLIB_NC, 3);
 
 // or using RadioShield
 // https://github.com/jgromes/RadioShield
@@ -91,11 +91,11 @@ void loop() {
 
   if (state == ERR_NONE) {
     // the packet was successfully transmitted
-    Serial.println(F(" success!"));
+    Serial.println(F("success!"));
 
   } else if (state == ERR_PACKET_TOO_LONG) {
     // the supplied packet was longer than 255 bytes
-    Serial.println(F(" too long!"));
+    Serial.println(F("too long!"));
 
   } else {
     // some other error occurred

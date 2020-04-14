@@ -108,7 +108,6 @@
 #define SI443X_REG_RX_FIFO_CONTROL                    0x7E
 #define SI443X_REG_FIFO_ACCESS                        0x7F
 
-// Si443x common LoRa modem settings
 // SI443X_REG_DEVICE_TYPE                                             MSB   LSB   DESCRIPTION
 #define SI443X_DEVICE_TYPE                            0x08        //  4     0     device identification register
 
@@ -155,7 +154,7 @@
 #define SI443X_VALID_PACKET_RECEIVED_ENABLED          0b00000010  //  1     1     valid packet received interrupt enabled
 #define SI443X_CRC_ERROR_ENABLED                      0b00000001  //  0     0     CRC failed interrupt enabled
 
-// SI443X_REG_INTERRUPT_STATUS_2
+// SI443X_REG_INTERRUPT_ENABLE_2
 #define SI443X_SYNC_WORD_DETECTED_ENABLED             0b10000000  //  7     7     sync word interrupt enabled
 #define SI443X_VALID_PREAMBLE_DETECTED_ENABLED        0b01000000  //  6     6     valid preamble interrupt enabled
 #define SI443X_INVALID_PREAMBLE_DETECTED_ENABLED      0b00100000  //  5     5     invalid preamble interrupt enabled
@@ -174,7 +173,8 @@
 #define SI443X_TX_ON                                  0b00001000  //  3     3     Tx on in manual transmit mode
 #define SI443X_RX_ON                                  0b00000100  //  2     2     Rx on in manual receive mode
 #define SI443X_PLL_ON                                 0b00000010  //  1     1     PLL on (tune mode)
-#define SI443X_XTAL_ON                                0b00000001  //  1     1     crystal oscillator on (ready mode)
+#define SI443X_XTAL_OFF                               0b00000000  //  0     0     crystal oscillator: off (standby mode)
+#define SI443X_XTAL_ON                                0b00000001  //  0     0                         on (ready mode)
 
 // SI443X_REG_OP_FUNC_CONTROL_2
 #define SI443X_ANT_DIV_TR_HL_IDLE_L                   0b00000000  //  7     5     GPIO1/2 states: Tx/Rx GPIO1 H, GPIO2 L; idle low (default)
@@ -416,10 +416,10 @@
 #define SI443X_BROADCAST_ADDR_CHECK_BYTE2             0b01000000  //  7     4                              on byte 2
 #define SI443X_BROADCAST_ADDR_CHECK_BYTE3             0b10000000  //  7     4                              on byte 3
 #define SI443X_RECEIVED_HEADER_CHECK_NONE             0b00000000  //  3     0     received header check: none
-#define SI443X_RECEIVED_HEADER_CHECK_BYTE0            0b00010000  //  3     0                            on byte 0
-#define SI443X_RECEIVED_HEADER_CHECK_BYTE1            0b00100000  //  3     0                            on byte 1
-#define SI443X_RECEIVED_HEADER_CHECK_BYTE2            0b01000000  //  3     0                            on byte 2 (default)
-#define SI443X_RECEIVED_HEADER_CHECK_BYTE3            0b10000000  //  3     0                            on byte 3 (default)
+#define SI443X_RECEIVED_HEADER_CHECK_BYTE0            0b00000001  //  3     0                            on byte 0
+#define SI443X_RECEIVED_HEADER_CHECK_BYTE1            0b00000010  //  3     0                            on byte 1
+#define SI443X_RECEIVED_HEADER_CHECK_BYTE2            0b00000100  //  3     0                            on byte 2 (default)
+#define SI443X_RECEIVED_HEADER_CHECK_BYTE3            0b00001000  //  3     0                            on byte 3 (default)
 
 // SI443X_REG_HEADER_CONTROL_2
 #define SI443X_SYNC_WORD_TIMEOUT_OFF                  0b00000000  //  7     7     ignore timeout period when searching for sync word: disabled (default)
@@ -565,15 +565,222 @@ class Si443x: public PhysicalLayer {
     */
     Si443x(Module* mod);
 
+    // basic methods
+
+    /*!
+      \brief Initialization method.
+
+      \param br Bit rate of the FSK transmission in kbps (kilobits per second).
+
+      \param freqDev Frequency deviation of the FSK transmission in kHz.
+
+      \param rxBw Receiver bandwidth in kHz.
+
+      \returns \ref status_codes
+    */
+    int16_t begin(float br, float freqDev, float rxBw);
+
+    /*!
+      \brief Reset method. Will reset the chip to the default state using SDN pin.
+    */
+    void reset();
+
+    /*!
+      \brief Binary transmit method. Will transmit arbitrary binary data up to 64 bytes long.
+      For overloads to transmit Arduino String or C-string, see PhysicalLayer::transmit.
+
+      \param data Binary data that will be transmitted.
+
+      \param len Length of binary data to transmit (in bytes).
+
+      \param addr Node address to transmit the packet to.
+
+      \returns \ref status_codes
+    */
+    int16_t transmit(uint8_t* data, size_t len, uint8_t addr = 0);
+
+    /*!
+      \brief Binary receive method. Will attempt to receive arbitrary binary data up to 64 bytes long.
+      For overloads to receive Arduino String, see PhysicalLayer::receive.
+
+      \param data Pointer to array to save the received binary data.
+
+      \param len Number of bytes that will be received. Must be known in advance for binary transmissions.
+
+      \returns \ref status_codes
+    */
+    int16_t receive(uint8_t* data, size_t len);
+
+    /*!
+      \brief Sets the module to sleep to save power. %Module will not be able to transmit or receive any data while in sleep mode.
+      %Module will wake up automatically when methods like transmit or receive are called.
+
+      \returns \ref status_codes
+    */
+    int16_t sleep();
+
+    /*!
+      \brief Sets the module to standby.
+
+      \returns \ref status_codes
+    */
+    int16_t standby();
+
+    /*!
+      \brief Enables direct transmission mode. While in direct mode, the module will not be able to transmit or receive packets.
+
+      \param FRF 24-bit raw frequency value to start transmitting at. Required for quick frequency shifts in RTTY.
+
+      \returns \ref status_codes
+    */
+    int16_t transmitDirect(uint32_t frf = 0);
+
+    /*!
+      \brief Enables direct reception mode. While in direct mode, the module will not be able to transmit or receive packets.
+
+      \returns \ref status_codes
+    */
+    int16_t receiveDirect();
+
+    /*!
+      \brief Disables direct mode and enables packet mode, allowing the module to receive packets.
+
+      \returns \ref status_codes
+    */
+    int16_t packetMode();
+
+    // interrupt methods
+
+    /*!
+      \brief Sets interrupt service routine to call when IRQ activates.
+
+      \param func ISR to call.
+    */
+    void setIrqAction(void (*func)(void));
+
+    /*!
+      \brief Clears interrupt service routine to call when IRQ activates.
+    */
+    void clearIrqAction();
+
+    /*!
+      \brief Interrupt-driven binary transmit method. Will start transmitting arbitrary binary data up to 64 bytes long.
+
+      \param data Binary data that will be transmitted.
+
+      \param len Length of binary data to transmit (in bytes).
+
+      \param addr Node address to transmit the packet to.
+
+      \returns \ref status_codes
+    */
+    int16_t startTransmit(uint8_t* data, size_t len, uint8_t addr = 0);
+
+    /*!
+      \brief Interrupt-driven receive method. IRQ will be activated when full valid packet is received.
+
+      \returns \ref status_codes
+    */
+    int16_t startReceive();
+
+    /*!
+      \brief Reads data that was received after calling startReceive method. This method reads len characters.
+
+      \param data Pointer to array to save the received binary data.
+
+      \param len Number of bytes that will be received. Must be known in advance for binary transmissions.
+
+      \returns \ref status_codes
+    */
+    int16_t readData(uint8_t* data, size_t len);
+
+    // configuration methods
+
+    /*!
+      \brief Sets FSK bit rate. Allowed values range from 0.123 to 256.0 kbps.
+
+      \param br Bit rate to be set (in kbps).
+
+      \returns \ref status_codes
+    */
+    int16_t setBitRate(float br);
+
+    /*!
+      \brief Sets FSK frequency deviation from carrier frequency. Allowed values range from 0.625 to 320.0 kHz.
+
+      \param freqDev Frequency deviation to be set (in kHz).
+
+      \returns \ref status_codes
+    */
+    int16_t setFrequencyDeviation(float freqDev);
+
+    /*!
+      \brief Sets receiver bandwidth. Allowed values range from 2.6 to 620.7 kHz.
+
+      \param rxBw Receiver bandwidth to be set in kHz.
+
+      \returns \ref status_codes
+    */
+    int16_t setRxBandwidth(float rxBw);
+
+    /*!
+      \brief Sets sync word. Up to 4 bytes can be set as sync word.
+
+      \param syncWord Pointer to the array of sync word bytes.
+
+      \param len Sync word length in bytes.
+    */
+    int16_t setSyncWord(uint8_t* syncWord, size_t len);
+
+     /*!
+      \brief Query modem for the packet length of received payload.
+
+      \param update Update received packet length. Will return cached value when set to false.
+
+      \returns Length of last received packet in bytes.
+    */
+    size_t getPacketLength(bool update = true);
+
+    /*!
+      \brief Sets transmission encoding. Only available in FSK mode.
+
+      \param encoding Encoding to be used. Set to 0 for NRZ, 1 for Manchester and 2 for whitening.
+
+      \returns \ref status_codes
+    */
+    int16_t setEncoding(uint8_t encoding);
+
+    /*!
+      \brief Sets Gaussian filter bandwidth-time product that will be used for data shaping.
+      Allowed values are 0.3, 0.5 or 1.0. Set to 0 to disable data shaping. Only available in FSK mode with FSK modulation.
+
+      \param sh Gaussian shaping bandwidth-time product that will be used for data shaping
+
+      \returns \ref status_codes
+    */
+    int16_t setDataShaping(float sh);
+
 #ifndef RADIOLIB_GODMODE
   protected:
 #endif
     Module* _mod;
 
+    float _br;
+    float _freqDev;
+
+    size_t _packetLength;
+    bool _packetLengthQueried;
+
+    int16_t setFrequencyRaw(float newFreq);
+
 #ifndef RADIOLIB_GODMODE
   private:
 #endif
-
+    bool findChip();
+    void clearIRQFlags();
+    int16_t config();
+    int16_t updateClockRecovery();
+    int16_t directMode();
 };
 
 #endif

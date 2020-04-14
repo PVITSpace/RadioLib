@@ -1,4 +1,4 @@
-#if !defined(_RADIOLIB_ESP8266_H) && !defined(ESP8266)
+#if !defined(_RADIOLIB_ESP8266_H)
 #define _RADIOLIB_ESP8266_H
 
 #include "../../Module.h"
@@ -46,7 +46,7 @@ class ESP8266: public TransportLayer {
     */
     int16_t join(const char* ssid, const char* password);
 
-    // transport layer methods (implementations of purely virtual methods in TransportMethod class)
+    // transport layer methods (implementations of purely virtual methods in TransportLayer class)
     int16_t openTransportConnection(const char* host, const char* protocol, uint16_t port, uint16_t tcpKeepAlive = 0);
     int16_t closeTransportConnection();
     int16_t send(const char* data);

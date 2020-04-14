@@ -55,16 +55,13 @@ int16_t SX1278::beginFSK(float freq, float br, float freqDev, float rxBw, int8_t
 void SX1278::reset() {
   Module::pinMode(_mod->getRst(), OUTPUT);
   Module::digitalWrite(_mod->getRst(), LOW);
-  delayMicroseconds(100);
+  delay(1);
   Module::digitalWrite(_mod->getRst(), HIGH);
   delay(5);
 }
 
 int16_t SX1278::setFrequency(float freq) {
-  // check frequency range
-  if((freq < 137.0) || (freq > 525.0)) {
-    return(ERR_INVALID_FREQUENCY);
-  }
+  RADIOLIB_CHECK_RANGE(freq, 137.0, 525.0, ERR_INVALID_FREQUENCY);
 
   // SX1276/77/78 Errata fixes
   if(getActiveModem() == SX127X_LORA) {

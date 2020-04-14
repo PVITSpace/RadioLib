@@ -101,7 +101,7 @@ int16_t RF69::begin(float freq, float br, float freqDev, float rxBw, int8_t powe
 void RF69::reset() {
   Module::pinMode(_mod->getRst(), OUTPUT);
   Module::digitalWrite(_mod->getRst(), HIGH);
-  delayMicroseconds(100);
+  delay(1);
   Module::digitalWrite(_mod->getRst(), LOW);
   delay(10);
 }
@@ -117,6 +117,8 @@ int16_t RF69::transmit(uint8_t* data, size_t len, uint8_t addr) {
   // wait for transmission end or timeout
   uint32_t start = micros();
   while(!digitalRead(_mod->getIrq())) {
+    yield();
+
     if(micros() - start > timeout) {
       standby();
       clearIRQFlags();
@@ -144,6 +146,8 @@ int16_t RF69::receive(uint8_t* data, size_t len) {
   // wait for packet reception or timeout
   uint32_t start = micros();
   while(!digitalRead(_mod->getIrq())) {
+    yield();
+    
     if(micros() - start > timeout) {
       standby();
       clearIRQFlags();
@@ -251,7 +255,7 @@ void RF69::clearDio0Action() {
 }
 
 void RF69::setDio1Action(void (*func)(void)) {
-  if(_mod->getGpio() != NC) {
+  if(_mod->getGpio() != RADIOLIB_NC) {
     return;
   }
   Module::pinMode(_mod->getGpio(), INPUT);
@@ -259,7 +263,7 @@ void RF69::setDio1Action(void (*func)(void)) {
 }
 
 void RF69::clearDio1Action() {
-  if(_mod->getGpio() != NC) {
+  if(_mod->getGpio() != RADIOLIB_NC) {
     return;
   }
   detachInterrupt(digitalPinToInterrupt(_mod->getGpio()));
@@ -308,7 +312,7 @@ int16_t RF69::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
 }
 
 int16_t RF69::readData(uint8_t* data, size_t len) {
-  // set mdoe to standby
+  // set mode to standby
   int16_t state = standby();
   RADIOLIB_ASSERT(state);
   // get packet length
@@ -359,10 +363,7 @@ int16_t RF69::setFrequency(float freq) {
 }
 
 int16_t RF69::setBitRate(float br) {
-  // check allowed bitrate
-  if((br < 1.2) || (br > 300.0)) {
-    return(ERR_INVALID_BIT_RATE);
-  }
+  RADIOLIB_CHECK_RANGE(br, 1.2, 300.0, ERR_INVALID_BIT_RATE);
 
   // check bitrate-bandwidth ratio
   if(!(br < 2000 * _rxBw)) {
@@ -496,10 +497,7 @@ int16_t RF69::setFrequencyDeviation(float freqDev) {
 }
 
 int16_t RF69::setOutputPower(int8_t power) {
-  // check output power range
-  if((power < -18) || (power > 17)) {
-    return(ERR_INVALID_OUTPUT_POWER);
-  }
+  RADIOLIB_CHECK_RANGE(power, -18, 17, ERR_INVALID_OUTPUT_POWER);
 
   // set mode to standby
   setMode(RF69_STANDBY);

@@ -72,6 +72,8 @@ int16_t nRF24::transmit(uint8_t* data, size_t len, uint8_t addr) {
   // wait until transmission is finished
   uint32_t start = micros();
   while(digitalRead(_mod->getIrq())) {
+    yield();
+
     // check maximum number of retransmits
     if(getStatus(NRF24_MAX_RT)) {
       standby();
@@ -101,6 +103,8 @@ int16_t nRF24::receive(uint8_t* data, size_t len) {
   // wait for Rx_DataReady or timeout
   uint32_t start = micros();
   while(digitalRead(_mod->getIrq())) {
+    yield();
+    
     // check timeout: 15 retries * 4ms (max Tx time as per datasheet)
     if(micros() - start >= 60000) {
       standby();
@@ -172,7 +176,7 @@ int16_t nRF24::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
 
   // CE high to start transmitting
   digitalWrite(_mod->getRst(), HIGH);
-  delayMicroseconds(10);
+  delay(1);
   digitalWrite(_mod->getRst(), LOW);
 
   return(state);
@@ -199,7 +203,7 @@ int16_t nRF24::startReceive() {
   digitalWrite(_mod->getRst(), HIGH);
 
   // wait to enter Rx state
-  delayMicroseconds(130);
+  delay(1);
 
   return(state);
 }
@@ -225,14 +229,11 @@ int16_t nRF24::readData(uint8_t* data, size_t len) {
 }
 
 int16_t nRF24::setFrequency(int16_t freq) {
-  // check allowed range
-  if(!((freq >= 2400) && (freq <= 2525))) {
-    return(ERR_INVALID_FREQUENCY);
-  }
+  RADIOLIB_CHECK_RANGE(freq, 2400, 2525, ERR_INVALID_FREQUENCY);
 
   // set frequency
   uint8_t freqRaw = freq - 2400;
-  return _mod->SPIsetRegValue(NRF24_REG_RF_CH, freqRaw, 6, 0);
+  return(_mod->SPIsetRegValue(NRF24_REG_RF_CH, freqRaw, 6, 0));
 }
 
 int16_t nRF24::setDataRate(int16_t dataRate) {
@@ -420,7 +421,7 @@ int16_t nRF24::getStatus(uint8_t mask) {
 }
 
 bool nRF24::isCarrierDetected() {
-  return(_mod->SPIgetRegValue(NRF24_REG_RPD, 0,0)) == 1;
+  return(_mod->SPIgetRegValue(NRF24_REG_RPD, 0, 0) == 1);
 }
 
 int16_t nRF24::setFrequencyDeviation(float freqDev) {
