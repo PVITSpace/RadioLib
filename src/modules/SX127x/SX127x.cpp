@@ -1,11 +1,11 @@
 #include "SX127x.h"
+#if !defined(RADIOLIB_EXCLUDE_SX127X)
 
 SX127x::SX127x(Module* mod) : PhysicalLayer(SX127X_FREQUENCY_STEP_SIZE, SX127X_MAX_PACKET_LENGTH) {
   _mod = mod;
-  _packetLengthQueried = false;
 }
 
-int16_t SX127x::begin(uint8_t chipVersion, uint8_t syncWord, uint8_t currentLimit, uint16_t preambleLength) {
+int16_t SX127x::begin(uint8_t chipVersion, uint8_t syncWord, uint16_t preambleLength) {
   // set module properties
   _mod->init(RADIOLIB_USE_SPI);
   Module::pinMode(_mod->getIrq(), INPUT);
@@ -14,14 +14,17 @@ int16_t SX127x::begin(uint8_t chipVersion, uint8_t syncWord, uint8_t currentLimi
   // try to find the SX127x chip
   if(!SX127x::findChip(chipVersion)) {
     RADIOLIB_DEBUG_PRINTLN(F("No SX127x found!"));
-    _mod->term();
+    _mod->term(RADIOLIB_USE_SPI);
     return(ERR_CHIP_NOT_FOUND);
-  } else {
-    RADIOLIB_DEBUG_PRINTLN(F("Found SX127x!"));
   }
+  RADIOLIB_DEBUG_PRINTLN(F("M\tSX127x"));
 
   // set mode to standby
   int16_t state = standby();
+  RADIOLIB_ASSERT(state);
+
+  // configure settings not accessible by API
+  state = config();
   RADIOLIB_ASSERT(state);
 
   // check active modem
@@ -36,7 +39,7 @@ int16_t SX127x::begin(uint8_t chipVersion, uint8_t syncWord, uint8_t currentLimi
   RADIOLIB_ASSERT(state);
 
   // set over current protection
-  state = SX127x::setCurrentLimit(currentLimit);
+  state = SX127x::setCurrentLimit(60);
   RADIOLIB_ASSERT(state);
 
   // set preamble length
@@ -49,7 +52,7 @@ int16_t SX127x::begin(uint8_t chipVersion, uint8_t syncWord, uint8_t currentLimi
   return(state);
 }
 
-int16_t SX127x::beginFSK(uint8_t chipVersion, float br, float freqDev, float rxBw, uint8_t currentLimit, uint16_t preambleLength, bool enableOOK) {
+int16_t SX127x::beginFSK(uint8_t chipVersion, float br, float freqDev, float rxBw, uint16_t preambleLength, bool enableOOK) {
   // set module properties
   _mod->init(RADIOLIB_USE_SPI);
   Module::pinMode(_mod->getIrq(), INPUT);
@@ -57,14 +60,20 @@ int16_t SX127x::beginFSK(uint8_t chipVersion, float br, float freqDev, float rxB
   // try to find the SX127x chip
   if(!SX127x::findChip(chipVersion)) {
     RADIOLIB_DEBUG_PRINTLN(F("No SX127x found!"));
-    _mod->term();
+    _mod->term(RADIOLIB_USE_SPI);
     return(ERR_CHIP_NOT_FOUND);
-  } else {
-    RADIOLIB_DEBUG_PRINTLN(F("Found SX127x!"));
   }
+  RADIOLIB_DEBUG_PRINTLN(F("M\tSX127x"));
+
+  // set mode to standby
+  int16_t state = standby();
+  RADIOLIB_ASSERT(state);
+
+  // configure settings not accessible by API
+  state = configFSK();
+  RADIOLIB_ASSERT(state);
 
   // check currently active modem
-  int16_t state;
   if(getActiveModem() != SX127X_FSK_OOK) {
     // set FSK mode
     state = setActiveModem(SX127X_FSK_OOK);
@@ -88,15 +97,15 @@ int16_t SX127x::beginFSK(uint8_t chipVersion, float br, float freqDev, float rxB
   RADIOLIB_ASSERT(state);
 
   // set over current protection
-  state = SX127x::setCurrentLimit(currentLimit);
+  state = SX127x::setCurrentLimit(60);
   RADIOLIB_ASSERT(state);
 
   // set preamble length
   state = SX127x::setPreambleLength(preambleLength);
   RADIOLIB_ASSERT(state);
 
-  // default sync word value 0x2D01 is the same as the default in LowPowerLab RFM69 library
-  uint8_t syncWord[] = {0x2D, 0x01};
+  // set default sync word
+  uint8_t syncWord[] = {0x12, 0xAD};
   state = setSyncWord(syncWord, 2);
   RADIOLIB_ASSERT(state);
 
@@ -109,7 +118,7 @@ int16_t SX127x::beginFSK(uint8_t chipVersion, float br, float freqDev, float rxB
   RADIOLIB_ASSERT(state);
 
   // set default encoding
-  state = setEncoding(0);
+  state = setEncoding(RADIOLIB_ENCODING_NRZ);
   RADIOLIB_ASSERT(state);
 
   // set default packet length mode
@@ -121,6 +130,7 @@ int16_t SX127x::beginFSK(uint8_t chipVersion, float br, float freqDev, float rxB
 int16_t SX127x::transmit(uint8_t* data, size_t len, uint8_t addr) {
   // set mode to standby
   int16_t state = setMode(SX127X_STANDBY);
+  RADIOLIB_ASSERT(state);
 
   int16_t modem = getActiveModem();
   uint32_t start = 0;
@@ -142,10 +152,10 @@ int16_t SX127x::transmit(uint8_t* data, size_t len, uint8_t addr) {
     RADIOLIB_ASSERT(state);
 
     // wait for packet transmission or timeout
-    start = micros();
-    while(!digitalRead(_mod->getIrq())) {
-      yield();
-      if(micros() - start > timeout) {
+    start = Module::micros();
+    while(!Module::digitalRead(_mod->getIrq())) {
+      Module::yield();
+      if(Module::micros() - start > timeout) {
         clearIRQFlags();
         return(ERR_TX_TIMEOUT);
       }
@@ -160,10 +170,10 @@ int16_t SX127x::transmit(uint8_t* data, size_t len, uint8_t addr) {
     RADIOLIB_ASSERT(state);
 
     // wait for transmission end or timeout
-    start = micros();
-    while(!digitalRead(_mod->getIrq())) {
-      yield();
-      if(micros() - start > timeout) {
+    start = Module::micros();
+    while(!Module::digitalRead(_mod->getIrq())) {
+      Module::yield();
+      if(Module::micros() - start > timeout) {
         clearIRQFlags();
         standby();
         return(ERR_TX_TIMEOUT);
@@ -174,7 +184,7 @@ int16_t SX127x::transmit(uint8_t* data, size_t len, uint8_t addr) {
   }
 
   // update data rate
-  uint32_t elapsed = micros() - start;
+  uint32_t elapsed = Module::micros() - start;
   _dataRate = (len*8.0)/((float)elapsed/1000000.0);
 
   // clear interrupt flags
@@ -187,6 +197,7 @@ int16_t SX127x::transmit(uint8_t* data, size_t len, uint8_t addr) {
 int16_t SX127x::receive(uint8_t* data, size_t len) {
   // set mode to standby
   int16_t state = setMode(SX127X_STANDBY);
+  RADIOLIB_ASSERT(state);
 
   int16_t modem = getActiveModem();
   if(modem == SX127X_LORA) {
@@ -195,9 +206,9 @@ int16_t SX127x::receive(uint8_t* data, size_t len) {
     RADIOLIB_ASSERT(state);
 
     // wait for packet reception or timeout (100 LoRa symbols)
-    while(!digitalRead(_mod->getIrq())) {
-      yield();
-      if(digitalRead(_mod->getGpio())) {
+    while(!Module::digitalRead(_mod->getIrq())) {
+      Module::yield();
+      if(Module::digitalRead(_mod->getGpio())) {
         clearIRQFlags();
         return(ERR_RX_TIMEOUT);
       }
@@ -212,10 +223,10 @@ int16_t SX127x::receive(uint8_t* data, size_t len) {
     RADIOLIB_ASSERT(state);
 
     // wait for packet reception or timeout
-    uint32_t start = micros();
-    while(!digitalRead(_mod->getIrq())) {
-      yield();
-      if(micros() - start > timeout) {
+    uint32_t start = Module::micros();
+    while(!Module::digitalRead(_mod->getIrq())) {
+      Module::yield();
+      if(Module::micros() - start > timeout) {
         clearIRQFlags();
         return(ERR_RX_TIMEOUT);
       }
@@ -245,14 +256,17 @@ int16_t SX127x::scanChannel() {
   // clear interrupt flags
   clearIRQFlags();
 
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
+
   // set mode to CAD
   state = setMode(SX127X_CAD);
   RADIOLIB_ASSERT(state);
 
   // wait for channel activity detected or timeout
-  while(!digitalRead(_mod->getIrq())) {
-    yield();
-    if(digitalRead(_mod->getGpio())) {
+  while(!Module::digitalRead(_mod->getIrq())) {
+    Module::yield();
+    if(Module::digitalRead(_mod->getGpio())) {
       clearIRQFlags();
       return(PREAMBLE_DETECTED);
     }
@@ -265,26 +279,35 @@ int16_t SX127x::scanChannel() {
 }
 
 int16_t SX127x::sleep() {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, LOW);
+
   // set mode to sleep
   return(setMode(SX127X_SLEEP));
 }
 
 int16_t SX127x::standby() {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, LOW);
+
   // set mode to standby
   return(setMode(SX127X_STANDBY));
 }
 
-int16_t SX127x::transmitDirect(uint32_t FRF) {
+int16_t SX127x::transmitDirect(uint32_t frf) {
   // check modem
   if(getActiveModem() != SX127X_FSK_OOK) {
     return(ERR_WRONG_MODEM);
   }
 
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, HIGH);
+
   // user requested to start transmitting immediately (required for RTTY)
-  if(FRF != 0) {
-    _mod->SPIwriteRegister(SX127X_REG_FRF_MSB, (FRF & 0xFF0000) >> 16);
-    _mod->SPIwriteRegister(SX127X_REG_FRF_MID, (FRF & 0x00FF00) >> 8);
-    _mod->SPIwriteRegister(SX127X_REG_FRF_LSB, FRF & 0x0000FF);
+  if(frf != 0) {
+    _mod->SPIwriteRegister(SX127X_REG_FRF_MSB, (frf & 0xFF0000) >> 16);
+    _mod->SPIwriteRegister(SX127X_REG_FRF_MID, (frf & 0x00FF00) >> 8);
+    _mod->SPIwriteRegister(SX127X_REG_FRF_LSB, frf & 0x0000FF);
 
     return(setMode(SX127X_TX));
   }
@@ -302,6 +325,9 @@ int16_t SX127x::receiveDirect() {
   if(getActiveModem() != SX127X_FSK_OOK) {
     return(ERR_WRONG_MODEM);
   }
+
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
 
   // activate direct mode
   int16_t state = directMode();
@@ -336,11 +362,12 @@ int16_t SX127x::packetMode() {
 int16_t SX127x::startReceive(uint8_t len, uint8_t mode) {
   // set mode to standby
   int16_t state = setMode(SX127X_STANDBY);
+  RADIOLIB_ASSERT(state);
 
   int16_t modem = getActiveModem();
   if(modem == SX127X_LORA) {
     // set DIO pin mapping
-    state |= _mod->SPIsetRegValue(SX127X_REG_DIO_MAPPING_1, SX127X_DIO0_RX_DONE | SX127X_DIO1_RX_TIMEOUT, 7, 4);
+    state = _mod->SPIsetRegValue(SX127X_REG_DIO_MAPPING_1, SX127X_DIO0_RX_DONE | SX127X_DIO1_RX_TIMEOUT, 7, 4);
 
     // set expected packet length for SF6
     if(_sf == 6) {
@@ -357,7 +384,8 @@ int16_t SX127x::startReceive(uint8_t len, uint8_t mode) {
 
   } else if(modem == SX127X_FSK_OOK) {
     // set DIO pin mapping
-    state |= _mod->SPIsetRegValue(SX127X_REG_DIO_MAPPING_1, SX127X_DIO0_PACK_PAYLOAD_READY, 7, 6);
+    state = _mod->SPIsetRegValue(SX127X_REG_DIO_MAPPING_1, SX127X_DIO0_PACK_PAYLOAD_READY, 7, 6);
+    RADIOLIB_ASSERT(state);
 
     // clear interrupt flags
     clearIRQFlags();
@@ -368,30 +396,33 @@ int16_t SX127x::startReceive(uint8_t len, uint8_t mode) {
     }
   }
 
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
+
   // set mode to receive
   return(setMode(mode));
 }
 
 void SX127x::setDio0Action(void (*func)(void)) {
-  attachInterrupt(digitalPinToInterrupt(_mod->getIrq()), func, RISING);
+  Module::attachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getIrq()), func, RISING);
 }
 
 void SX127x::clearDio0Action() {
-  detachInterrupt(digitalPinToInterrupt(_mod->getIrq()));
+  Module::detachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getIrq()));
 }
 
 void SX127x::setDio1Action(void (*func)(void)) {
-  if(_mod->getGpio() != RADIOLIB_NC) {
+  if(_mod->getGpio() == RADIOLIB_NC) {
     return;
   }
-  attachInterrupt(digitalPinToInterrupt(_mod->getGpio()), func, RISING);
+  Module::attachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getGpio()), func, RISING);
 }
 
 void SX127x::clearDio1Action() {
-  if(_mod->getGpio() != RADIOLIB_NC) {
+  if(_mod->getGpio() == RADIOLIB_NC) {
     return;
   }
-  detachInterrupt(digitalPinToInterrupt(_mod->getGpio()));
+  Module::detachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getGpio()));
 }
 
 int16_t SX127x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
@@ -418,15 +449,6 @@ int16_t SX127x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
     state |= _mod->SPIsetRegValue(SX127X_REG_FIFO_TX_BASE_ADDR, SX127X_FIFO_TX_BASE_ADDR_MAX);
     state |= _mod->SPIsetRegValue(SX127X_REG_FIFO_ADDR_PTR, SX127X_FIFO_TX_BASE_ADDR_MAX);
 
-    // write packet to FIFO
-    _mod->SPIwriteRegisterBurst(SX127X_REG_FIFO, data, len);
-
-    // start transmission
-    state |= setMode(SX127X_TX);
-    RADIOLIB_ASSERT(state);
-
-    return(ERR_NONE);
-
   } else if(modem == SX127X_FSK_OOK) {
     // check packet length
     if(len >= SX127X_MAX_PACKET_LENGTH_FSK) {
@@ -440,25 +462,28 @@ int16_t SX127x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
     clearIRQFlags();
 
     // set packet length
-    _mod->SPIwriteRegister(SX127X_REG_FIFO, len);
+    if (_packetLengthConfig == SX127X_PACKET_VARIABLE) {
+      _mod->SPIwriteRegister(SX127X_REG_FIFO, len);
+    }
 
     // check address filtering
     uint8_t filter = _mod->SPIgetRegValue(SX127X_REG_PACKET_CONFIG_1, 2, 1);
     if((filter == SX127X_ADDRESS_FILTERING_NODE) || (filter == SX127X_ADDRESS_FILTERING_NODE_BROADCAST)) {
       _mod->SPIwriteRegister(SX127X_REG_FIFO, addr);
     }
-
-    // write packet to FIFO
-    _mod->SPIwriteRegisterBurst(SX127X_REG_FIFO, data, len);
-
-    // start transmission
-    state |= setMode(SX127X_TX);
-    RADIOLIB_ASSERT(state);
-
-    return(ERR_NONE);
   }
 
-  return(ERR_UNKNOWN);
+  // write packet to FIFO
+  _mod->SPIwriteRegisterBurst(SX127X_REG_FIFO, data, len);
+
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, HIGH);
+
+  // start transmission
+  state |= setMode(SX127X_TX);
+  RADIOLIB_ASSERT(state);
+
+  return(ERR_NONE);
 }
 
 int16_t SX127x::readData(uint8_t* data, size_t len) {
@@ -474,11 +499,18 @@ int16_t SX127x::readData(uint8_t* data, size_t len) {
       length = getPacketLength();
     }
 
-    // check integrity CRC
+    // check packet header integrity
+    if(_crcEnabled && (_mod->SPIgetRegValue(SX127X_REG_HOP_CHANNEL, 6, 6)) == 0) {
+      // CRC is disabled according to packet header and enabled according to user
+      // most likely damaged packet header
+      clearIRQFlags();
+      return(ERR_LORA_HEADER_DAMAGED);
+    }
+
+    // check payload CRC
     if(_mod->SPIgetRegValue(SX127X_REG_IRQ_FLAGS, 5, 5) == SX127X_CLEAR_IRQ_FLAG_PAYLOAD_CRC_ERROR) {
       // clear interrupt flags
       clearIRQFlags();
-
       return(ERR_CRC_MISMATCH);
     }
 
@@ -567,9 +599,10 @@ int16_t SX127x::setPreambleLength(uint16_t preambleLength) {
     return(state);
 
   } else if(modem == SX127X_FSK_OOK) {
-    // set preamble length
-    state = _mod->SPIsetRegValue(SX127X_REG_PREAMBLE_MSB_FSK, (uint8_t)((preambleLength >> 8) & 0xFF));
-    state |= _mod->SPIsetRegValue(SX127X_REG_PREAMBLE_LSB_FSK, (uint8_t)(preambleLength & 0xFF));
+    // set preamble length (in bytes)
+    uint16_t numBytes = preambleLength / 8;
+    state = _mod->SPIsetRegValue(SX127X_REG_PREAMBLE_MSB_FSK, (uint8_t)((numBytes >> 8) & 0xFF));
+    state |= _mod->SPIsetRegValue(SX127X_REG_PREAMBLE_LSB_FSK, (uint8_t)(numBytes & 0xFF));
     return(state);
   }
 
@@ -640,7 +673,7 @@ float SX127x::getSNR() {
   return(rawSNR / 4.0);
 }
 
-float SX127x::getDataRate() {
+float SX127x::getDataRate() const {
   return(_dataRate);
 }
 
@@ -666,7 +699,7 @@ int16_t SX127x::setBitRate(float br) {
   state = _mod->SPIsetRegValue(SX127X_REG_BITRATE_MSB, (bitRate & 0xFF00) >> 8, 7, 0);
   state |= _mod->SPIsetRegValue(SX127X_REG_BITRATE_LSB, bitRate & 0x00FF, 7, 0);
 
-  // TODO fractional part of bit rate setting (not in OOK)
+  /// \todo fractional part of bit rate setting (not in OOK)
   if(state == ERR_NONE) {
     SX127x::_br = br;
   }
@@ -739,7 +772,7 @@ int16_t SX127x::setSyncWord(uint8_t* syncWord, size_t len) {
   RADIOLIB_CHECK_RANGE(len, 1, 8, ERR_INVALID_SYNC_WORD);
 
   // sync word must not contain value 0x00
-  for(uint8_t i = 0; i < len; i++) {
+  for(size_t i = 0; i < len; i++) {
     if(syncWord[i] == 0x00) {
       return(ERR_INVALID_SYNC_WORD);
     }
@@ -851,7 +884,11 @@ size_t SX127x::getPacketLength(bool update) {
   } else if(modem == SX127X_FSK_OOK) {
     // get packet length
     if(!_packetLengthQueried && update) {
-      _packetLength = _mod->SPIreadRegister(SX127X_REG_FIFO);
+      if (_packetLengthConfig == SX127X_PACKET_VARIABLE) {
+        _packetLength = _mod->SPIreadRegister(SX127X_REG_FIFO);
+      } else {
+        _packetLength = _mod->SPIreadRegister(SX127X_REG_PAYLOAD_LENGTH_FSK);
+      }
       _packetLengthQueried = true;
     }
   }
@@ -898,15 +935,125 @@ int16_t SX127x::setEncoding(uint8_t encoding) {
 
   // set encoding
   switch(encoding) {
-    case 0:
+    case RADIOLIB_ENCODING_NRZ:
       return(_mod->SPIsetRegValue(SX127X_REG_PACKET_CONFIG_1, SX127X_DC_FREE_NONE, 6, 5));
-    case 1:
+    case RADIOLIB_ENCODING_MANCHESTER:
       return(_mod->SPIsetRegValue(SX127X_REG_PACKET_CONFIG_1, SX127X_DC_FREE_MANCHESTER, 6, 5));
-    case 2:
+    case RADIOLIB_ENCODING_WHITENING:
       return(_mod->SPIsetRegValue(SX127X_REG_PACKET_CONFIG_1, SX127X_DC_FREE_WHITENING, 6, 5));
     default:
       return(ERR_INVALID_ENCODING);
   }
+}
+
+uint16_t SX127x::getIRQFlags() {
+  // check active modem
+  if(getActiveModem() == SX127X_LORA) {
+    // LoRa, just 8-bit value
+    return((uint16_t)_mod->SPIreadRegister(SX127X_REG_IRQ_FLAGS));
+
+  } else {
+    // FSK, the IRQ flags are 16 bits in total
+    uint16_t flags = ((uint16_t)_mod->SPIreadRegister(SX127X_REG_IRQ_FLAGS_2)) << 8;
+    flags |= (uint16_t)_mod->SPIreadRegister(SX127X_REG_IRQ_FLAGS_1);
+    return(flags);
+  }
+
+}
+
+uint8_t SX127x::getModemStatus() {
+  // check active modem
+  if(getActiveModem() != SX127X_LORA) {
+    return(0x00);
+  }
+
+  // read the register
+  return(_mod->SPIreadRegister(SX127X_REG_MODEM_STAT));
+}
+
+void SX127x::setRfSwitchPins(RADIOLIB_PIN_TYPE rxEn, RADIOLIB_PIN_TYPE txEn) {
+  _mod->setRfSwitchPins(rxEn, txEn);
+}
+
+uint8_t SX127x::random() {
+  // check active modem
+  uint8_t rssiValueReg = SX127X_REG_RSSI_WIDEBAND;
+  if(getActiveModem() == SX127X_FSK_OOK) {
+    rssiValueReg = SX127X_REG_RSSI_VALUE_FSK;
+  }
+
+  // set mode to Rx
+  setMode(SX127X_RX);
+
+  // wait a bit for the RSSI reading to stabilise
+  Module::delay(10);
+
+  // read RSSI value 8 times, always keep just the least significant bit
+  uint8_t randByte = 0x00;
+  for(uint8_t i = 0; i < 8; i++) {
+    randByte |= ((_mod->SPIreadRegister(rssiValueReg) & 0x01) << i);
+  }
+
+  // set mode to standby
+  setMode(SX127X_STANDBY);
+
+  return(randByte);
+}
+
+int16_t SX127x::getChipVersion() {
+  return(_mod->SPIgetRegValue(SX127X_REG_VERSION));
+}
+
+int8_t SX127x::getTempRaw() {
+  int8_t temp = 0;
+  uint8_t previousOpMode;
+  uint8_t ival;
+
+  // save current Op Mode
+  previousOpMode = _mod->SPIgetRegValue(SX127X_REG_OP_MODE);
+
+  // check if we need to step out of LoRa mode first
+  if ((previousOpMode & SX127X_LORA) == SX127X_LORA) {
+    _mod->SPIsetRegValue(SX127X_REG_OP_MODE, (SX127X_LORA | SX127X_SLEEP));
+  }
+
+  // put device in FSK sleep
+  _mod->SPIsetRegValue(SX127X_REG_OP_MODE, (SX127X_FSK_OOK | SX127X_SLEEP));
+
+  // put device in FSK RxSynth
+  _mod->SPIsetRegValue(SX127X_REG_OP_MODE, (SX127X_FSK_OOK | SX127X_FSRX));
+
+  // enable temperature reading
+  _mod->SPIsetRegValue(SX127X_REG_IMAGE_CAL, SX127X_TEMP_MONITOR_ON, 0, 0);
+
+  // wait
+  Module::delayMicroseconds(200);
+
+  // disable temperature reading
+  _mod->SPIsetRegValue(SX127X_REG_IMAGE_CAL, SX127X_TEMP_MONITOR_OFF, 0, 0);
+
+  // put device in FSK sleep
+  _mod->SPIsetRegValue(SX127X_REG_OP_MODE, (SX127X_FSK_OOK | SX127X_SLEEP));
+
+  // read temperature
+  ival = _mod->SPIgetRegValue(SX127X_REG_TEMP);
+
+  // convert very raw value
+  if ((ival & 0x80) == 0x80) {
+    temp = 255 - ival;
+  } else {
+    temp = -1 * ival;
+  }
+
+  // check if we need to step back into LoRa mode
+  if ((previousOpMode & SX127X_LORA) == SX127X_LORA) {
+    _mod->SPIsetRegValue(SX127X_REG_OP_MODE, (SX127X_LORA | SX127X_SLEEP));
+  }
+
+  // reload previous Op Mode
+  _mod->SPIsetRegValue(SX127X_REG_OP_MODE, previousOpMode);
+
+  return(temp);
 }
 
 int16_t SX127x::config() {
@@ -924,7 +1071,7 @@ int16_t SX127x::configFSK() {
   _mod->SPIwriteRegister(SX127X_REG_IRQ_FLAGS_2, SX127X_FLAG_FIFO_OVERRUN);
 
   // set packet configuration
-  state = _mod->SPIsetRegValue(SX127X_REG_PACKET_CONFIG_1, SX127X_PACKET_VARIABLE | SX127X_DC_FREE_WHITENING | SX127X_CRC_ON | SX127X_CRC_AUTOCLEAR_ON | SX127X_ADDRESS_FILTERING_OFF | SX127X_CRC_WHITENING_TYPE_CCITT, 7, 0);
+  state = _mod->SPIsetRegValue(SX127X_REG_PACKET_CONFIG_1, SX127X_PACKET_VARIABLE | SX127X_DC_FREE_NONE | SX127X_CRC_ON | SX127X_CRC_AUTOCLEAR_ON | SX127X_ADDRESS_FILTERING_OFF | SX127X_CRC_WHITENING_TYPE_CCITT, 7, 0);
   state |= _mod->SPIsetRegValue(SX127X_REG_PACKET_CONFIG_2, SX127X_DATA_MODE_PACKET | SX127X_IO_HOME_OFF, 6, 5);
   RADIOLIB_ASSERT(state);
 
@@ -943,10 +1090,8 @@ int16_t SX127x::configFSK() {
   state |= _mod->SPIsetRegValue(SX127X_REG_RX_TIMEOUT_3, SX127X_TIMEOUT_SIGNAL_SYNC_OFF);
   RADIOLIB_ASSERT(state);
 
-  // enable preamble detector and set preamble length
+  // enable preamble detector
   state = _mod->SPIsetRegValue(SX127X_REG_PREAMBLE_DETECT, SX127X_PREAMBLE_DETECTOR_ON | SX127X_PREAMBLE_DETECTOR_2_BYTE | SX127X_PREAMBLE_DETECTOR_TOL);
-  state |= _mod->SPIsetRegValue(SX127X_REG_PREAMBLE_MSB_FSK, SX127X_PREAMBLE_SIZE_MSB);
-  state |= _mod->SPIsetRegValue(SX127X_REG_PREAMBLE_LSB_FSK, SX127X_PREAMBLE_SIZE_LSB);
 
   return(state);
 }
@@ -983,7 +1128,7 @@ bool SX127x::findChip(uint8_t ver) {
     reset();
 
     // check version register
-    uint8_t version = _mod->SPIreadRegister(SX127X_REG_VERSION);
+    int16_t version = getChipVersion();
     if(version == ver) {
       flagFound = true;
     } else {
@@ -992,13 +1137,13 @@ bool SX127x::findChip(uint8_t ver) {
         RADIOLIB_DEBUG_PRINT(i + 1);
         RADIOLIB_DEBUG_PRINT(F(" of 10 tries) SX127X_REG_VERSION == "));
 
-        char buffHex[5];
-        sprintf(buffHex, "0x%02X", version);
+        char buffHex[12];
+        sprintf(buffHex, "0x%04X", version);
         RADIOLIB_DEBUG_PRINT(buffHex);
         RADIOLIB_DEBUG_PRINT(F(", expected 0x00"));
         RADIOLIB_DEBUG_PRINTLN(ver, HEX);
       #endif
-      delay(1000);
+      Module::delay(10);
       i++;
     }
   }
@@ -1043,27 +1188,4 @@ void SX127x::clearFIFO(size_t count) {
   }
 }
 
-#ifdef RADIOLIB_DEBUG
-void SX127x::regDump() {
-  RADIOLIB_DEBUG_PRINTLN();
-  RADIOLIB_DEBUG_PRINTLN(F("ADDR\tVALUE"));
-  for(uint16_t addr = 0x01; addr <= 0x70; addr++) {
-    if(addr <= 0x0F) {
-      RADIOLIB_DEBUG_PRINT(F("0x0"));
-    } else {
-      RADIOLIB_DEBUG_PRINT(F("0x"));
-    }
-    RADIOLIB_DEBUG_PRINT(addr, HEX);
-    RADIOLIB_DEBUG_PRINT('\t');
-    uint8_t val = _mod->SPIreadRegister(addr);
-    if(val <= 0x0F) {
-      RADIOLIB_DEBUG_PRINT(F("0x0"));
-    } else {
-      RADIOLIB_DEBUG_PRINT(F("0x"));
-    }
-    RADIOLIB_DEBUG_PRINTLN(val, HEX);
-
-    delay(50);
-  }
-}
 #endif

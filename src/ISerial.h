@@ -3,11 +3,6 @@
 
 #include "Module.h"
 
-#include <stdio.h>
-
-#include "WString.h"
-#include "Printable.h"
-
 /*!
   \class ISerial
 
@@ -15,21 +10,19 @@
 */
 class ISerial {
   public:
-    ISerial(Module* mod);
+    explicit ISerial(Module* mod);
 
     void begin(long);
-    bool listen();
     void end();
-    bool isListening();
-    bool stopListening();
-    bool overflow();
     int peek();
     size_t write(uint8_t);
     int read();
     int available();
     void flush();
 
+    #ifndef ARDUINO_ARCH_MEGAAVR
     size_t print(const __FlashStringHelper *);
+    #endif
     size_t print(const String &);
     size_t print(const char[]);
     size_t print(char);
@@ -41,7 +34,9 @@ class ISerial {
     size_t print(double, int = 2);
     size_t print(const Printable&);
 
+    #ifndef ARDUINO_ARCH_MEGAAVR
     size_t println(const __FlashStringHelper *);
+    #endif
     size_t println(const String &s);
     size_t println(const char[]);
     size_t println(char);

@@ -1,18 +1,36 @@
 #include "Hellschreiber.h"
+#if !defined(RADIOLIB_EXCLUDE_HELLSCHREIBER)
 
 HellClient::HellClient(PhysicalLayer* phy) {
   _phy = phy;
+
+  #if !defined(RADIOLIB_EXCLUDE_AFSK)
+  _audio = nullptr;
+  #endif
 }
+
+#if !defined(RADIOLIB_EXCLUDE_AFSK)
+HellClient::HellClient(AFSKClient* audio) {
+  _phy = audio->_phy;
+  _audio = audio;
+}
+#endif
 
 int16_t HellClient::begin(float base, float rate) {
   // calculate 24-bit frequency
+  _baseHz = base;
   _base = (base * 1000000.0) / _phy->getFreqStep();
 
   // calculate "pixel" duration
   _pixelDuration = 1000000.0/rate;
 
-  // set module frequency deviation to 0
-  int16_t state = _phy->setFrequencyDeviation(0);
+  // set module frequency deviation to 0 if using FSK
+  int16_t state = ERR_NONE;
+  #if !defined(RADIOLIB_EXCLUDE_AFSK)
+  if(_audio == nullptr) {
+    state = _phy->setFrequencyDeviation(0);
+  }
+  #endif
 
   return(state);
 }
@@ -21,18 +39,18 @@ size_t HellClient::printGlyph(uint8_t* buff) {
   // print the character
   for(uint8_t mask = 0x40; mask >= 0x01; mask >>= 1) {
     for(int8_t i = HELL_FONT_HEIGHT - 1; i >= 0; i--) {
-        uint32_t start = micros();
+        uint32_t start = Module::micros();
         if(buff[i] & mask) {
-          _phy->transmitDirect(_base);
+          transmitDirect(_base, _baseHz);
         } else {
-          _phy->standby();
+          standby();
         }
-        while(micros() - start < _pixelDuration);
+        while(Module::micros() - start < _pixelDuration);
     }
   }
 
   // make sure transmitter is off
-  _phy->standby();
+  standby();
 
   return(1);
 }
@@ -67,7 +85,7 @@ size_t HellClient::write(uint8_t b) {
   uint8_t buff[HELL_FONT_WIDTH];
   buff[0] = 0x00;
   for(uint8_t i = 0; i < HELL_FONT_WIDTH - 2; i++) {
-    buff[i + 1] = pgm_read_byte(&HellFont[pos][i]);
+    buff[i + 1] = RADIOLIB_PROGMEM_READ_BYTE(&HellFont[pos][i]);
   }
   buff[HELL_FONT_WIDTH - 1] = 0x00;
 
@@ -79,7 +97,7 @@ size_t HellClient::print(__FlashStringHelper* fstr) {
   PGM_P p = reinterpret_cast<PGM_P>(fstr);
   size_t n = 0;
   while(true) {
-    char c = pgm_read_byte(p++);
+    char c = RADIOLIB_PROGMEM_READ_BYTE(p++);
     if(c == '\0') {
       break;
     }
@@ -140,7 +158,8 @@ size_t HellClient::print(double n, int digits) {
 }
 
 size_t HellClient::println(void) {
-  return(0);
+  // Hellschreiber has no concept of "line ending", print one space instead
+  return(HellClient::print(' '));
 }
 
 size_t HellClient::println(__FlashStringHelper* fstr) {
@@ -269,3 +288,23 @@ size_t HellClient::printFloat(double number, uint8_t digits)  {
 
   return n;
 }
+
+int16_t HellClient::transmitDirect(uint32_t freq, uint32_t freqHz) {
+  #if !defined(RADIOLIB_EXCLUDE_AFSK)
+  if(_audio != nullptr) {
+    return(_audio->tone(freqHz));
+  }
+  #endif
+  return(_phy->transmitDirect(freq));
+}
+
+int16_t HellClient::standby() {
+  #if !defined(RADIOLIB_EXCLUDE_AFSK)
+  if(_audio != nullptr) {
+    return(_audio->noTone());
+  }
+  #endif
+  return(_phy->standby());
+}
+
+#endif

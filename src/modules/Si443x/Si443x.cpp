@@ -1,12 +1,11 @@
 #include "Si443x.h"
+#if !defined(RADIOLIB_EXCLUDE_SI443X)
 
 Si443x::Si443x(Module* mod) : PhysicalLayer(SI443X_FREQUENCY_STEP_SIZE, SI443X_MAX_PACKET_LENGTH) {
   _mod = mod;
-
-  _packetLengthQueried = false;
 }
 
-int16_t Si443x::begin(float br, float freqDev, float rxBw) {
+int16_t Si443x::begin(float br, float freqDev, float rxBw, uint8_t preambleLen) {
   // set module properties
   _mod->init(RADIOLIB_USE_SPI);
   Module::pinMode(_mod->getIrq(), INPUT);
@@ -16,10 +15,10 @@ int16_t Si443x::begin(float br, float freqDev, float rxBw) {
   // try to find the Si443x chip
   if(!Si443x::findChip()) {
     RADIOLIB_DEBUG_PRINTLN(F("No Si443x found!"));
-    _mod->term();
+    _mod->term(RADIOLIB_USE_SPI);
     return(ERR_CHIP_NOT_FOUND);
   } else {
-    RADIOLIB_DEBUG_PRINTLN(F("Found Si443x!"));
+    RADIOLIB_DEBUG_PRINTLN(F("M\tSi443x"));
   }
 
   // clear POR interrupt
@@ -39,7 +38,10 @@ int16_t Si443x::begin(float br, float freqDev, float rxBw) {
   state = setRxBandwidth(rxBw);
   RADIOLIB_ASSERT(state);
 
-  uint8_t syncWord[] = {0x2D, 0x01};
+  state = setPreambleLength(preambleLen);
+  RADIOLIB_ASSERT(state);
+
+  uint8_t syncWord[] = {0x12, 0xAD};
   state = setSyncWord(syncWord, sizeof(syncWord));
   RADIOLIB_ASSERT(state);
 
@@ -58,9 +60,9 @@ int16_t Si443x::begin(float br, float freqDev, float rxBw) {
 void Si443x::reset() {
   Module::pinMode(_mod->getRst(), OUTPUT);
   Module::digitalWrite(_mod->getRst(), HIGH);
-  delay(1);
+  Module::delay(1);
   Module::digitalWrite(_mod->getRst(), LOW);
-  delay(100);
+  Module::delay(100);
 }
 
 int16_t Si443x::transmit(uint8_t* data, size_t len, uint8_t addr) {
@@ -72,21 +74,26 @@ int16_t Si443x::transmit(uint8_t* data, size_t len, uint8_t addr) {
   RADIOLIB_ASSERT(state);
 
   // wait for transmission end or timeout
-  uint32_t start = micros();
-  while(digitalRead(_mod->getIrq())) {
-    yield();
-    if(micros() - start > timeout) {
+  uint32_t start = Module::micros();
+  while(Module::digitalRead(_mod->getIrq())) {
+    Module::yield();
+    if(Module::micros() - start > timeout) {
       standby();
       clearIRQFlags();
       return(ERR_TX_TIMEOUT);
     }
   }
 
-  // set mode to standby
-  state = standby();
-
   // clear interrupt flags
   clearIRQFlags();
+
+  // set mode to standby
+  standby();
+
+  // the next transmission will timeout without the following
+  _mod->SPIwriteRegister(SI443X_REG_INTERRUPT_ENABLE_2, 0x00);
+  _mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_2, SI443X_TX_DATA_SOURCE_FIFO, 5, 4);
+  state = setFrequencyRaw(_freq);
 
   return(state);
 }
@@ -100,9 +107,9 @@ int16_t Si443x::receive(uint8_t* data, size_t len) {
   RADIOLIB_ASSERT(state);
 
   // wait for packet reception or timeout
-  uint32_t start = micros();
-  while(digitalRead(_mod->getIrq())) {
-    if(micros() - start > timeout) {
+  uint32_t start = Module::micros();
+  while(Module::digitalRead(_mod->getIrq())) {
+    if(Module::micros() - start > timeout) {
       standby();
       clearIRQFlags();
       return(ERR_RX_TIMEOUT);
@@ -114,6 +121,9 @@ int16_t Si443x::receive(uint8_t* data, size_t len) {
 }
 
 int16_t Si443x::sleep() {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, LOW);
+
   // disable wakeup timer interrupt
   int16_t state = _mod->SPIsetRegValue(SI443X_REG_INTERRUPT_ENABLE_1, 0x00);
   RADIOLIB_ASSERT(state);
@@ -127,14 +137,21 @@ int16_t Si443x::sleep() {
 }
 
 int16_t Si443x::standby() {
-  return(_mod->SPIsetRegValue(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_XTAL_ON, 7, 0, 10));
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, LOW);
+
+  //return(_mod->SPIsetRegValue(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_XTAL_ON, 7, 0, 10));
+  return(ERR_NONE);
 }
 
 int16_t Si443x::transmitDirect(uint32_t frf) {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, HIGH);
+
   // user requested to start transmitting immediately (required for RTTY)
   if(frf != 0) {
     // convert the 24-bit frequency to the format accepted by the module
-    // TODO integers only
+    /// \todo integers only
     float newFreq = frf / 6400.0;
 
     // check high/low band
@@ -155,7 +172,7 @@ int16_t Si443x::transmitDirect(uint32_t frf) {
 
     // start direct transmission
     directMode();
-    _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_TX_ON);
+    _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_TX_ON | SI443X_XTAL_ON);
 
     return(ERR_NONE);
   }
@@ -165,17 +182,20 @@ int16_t Si443x::transmitDirect(uint32_t frf) {
   RADIOLIB_ASSERT(state);
 
   // start transmitting
-  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_TX_ON);
+  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_TX_ON | SI443X_XTAL_ON);
   return(state);
 }
 
 int16_t Si443x::receiveDirect() {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
+
   // activate direct mode
   int16_t state = directMode();
   RADIOLIB_ASSERT(state);
 
   // start receiving
-  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_RX_ON);
+  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_RX_ON | SI443X_XTAL_ON);
   return(state);
 }
 
@@ -184,11 +204,11 @@ int16_t Si443x::packetMode() {
 }
 
 void Si443x::setIrqAction(void (*func)(void)) {
-  attachInterrupt(digitalPinToInterrupt(_mod->getIrq()), func, FALLING);
+  Module::attachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getIrq()), func, FALLING);
 }
 
 void Si443x::clearIrqAction() {
-  detachInterrupt(digitalPinToInterrupt(_mod->getIrq()));
+  Module::detachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getIrq()));
 }
 
 int16_t Si443x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
@@ -205,25 +225,28 @@ int16_t Si443x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
   _mod->SPIsetRegValue(SI443X_REG_OP_FUNC_CONTROL_2, SI443X_TX_FIFO_RESET, 0, 0);
   _mod->SPIsetRegValue(SI443X_REG_OP_FUNC_CONTROL_2, SI443X_TX_FIFO_CLEAR, 0, 0);
 
-  // set interrupt mapping
-  state = _mod->SPIsetRegValue(SI443X_REG_INTERRUPT_ENABLE_1, SI443X_PACKET_SENT_ENABLED);
-  RADIOLIB_ASSERT(state);
-
   // clear interrupt flags
   clearIRQFlags();
 
   // set packet length
-  // TODO variable packet length
+  /// \todo variable packet length
   _mod->SPIwriteRegister(SI443X_REG_TRANSMIT_PACKET_LENGTH, len);
 
-  // TODO use header as address field?
+  /// \todo use header as address field?
   (void)addr;
 
   // write packet to FIFO
   _mod->SPIwriteRegisterBurst(SI443X_REG_FIFO_ACCESS, data, len);
 
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, HIGH);
+
+  // set interrupt mapping
+  _mod->SPIwriteRegister(SI443X_REG_INTERRUPT_ENABLE_1, SI443X_PACKET_SENT_ENABLED);
+  _mod->SPIwriteRegister(SI443X_REG_INTERRUPT_ENABLE_2, 0x00);
+
   // set mode to transmit
-  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_TX_ON);
+  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_TX_ON | SI443X_XTAL_ON);
 
   return(state);
 }
@@ -237,17 +260,18 @@ int16_t Si443x::startReceive() {
   _mod->SPIsetRegValue(SI443X_REG_OP_FUNC_CONTROL_2, SI443X_RX_FIFO_RESET, 1, 1);
   _mod->SPIsetRegValue(SI443X_REG_OP_FUNC_CONTROL_2, SI443X_RX_FIFO_CLEAR, 1, 1);
 
-  // set interrupt mapping
-  state = _mod->SPIsetRegValue(SI443X_REG_INTERRUPT_ENABLE_1, SI443X_VALID_PACKET_RECEIVED_ENABLED, SI443X_CRC_ERROR_ENABLED);
-  RADIOLIB_ASSERT(state);
-  state = _mod->SPIsetRegValue(SI443X_REG_INTERRUPT_ENABLE_2, 0x00);
-  RADIOLIB_ASSERT(state);
-
   // clear interrupt flags
   clearIRQFlags();
 
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
+
+  // set interrupt mapping
+  _mod->SPIwriteRegister(SI443X_REG_INTERRUPT_ENABLE_1, SI443X_PACKET_SENT_ENABLED);
+  _mod->SPIwriteRegister(SI443X_REG_INTERRUPT_ENABLE_2, 0x00);
+
   // set mode to receive
-  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_RX_ON);
+  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_RX_ON | SI443X_XTAL_ON);
 
   return(state);
 }
@@ -318,7 +342,7 @@ int16_t Si443x::setFrequencyDeviation(float freqDev) {
     if(state == ERR_NONE) {
       _freqDev = freqDev;
     }
-
+    return(state);
   }
 
   RADIOLIB_CHECK_RANGE(freqDev, 0.625, 320.0, ERR_INVALID_FREQUENCY_DEVIATION);
@@ -366,63 +390,64 @@ int16_t Si443x::setRxBandwidth(float rxBw) {
     filterSet = ((rxBw - 60.286)/10.7000 + 0.5);
 
   // this is the "Lord help thee who tread 'ere" section - no way to approximate this mess
-  } else if(rxBw == 142.8) {
+  /// \todo float tolerance equality as macro?
+  } else if(abs(rxBw - 142.8) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 1;
     filterSet = 4;
-  } else if(rxBw == 167.8) {
+  } else if(abs(rxBw - 167.8) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 1;
     filterSet = 5;
-  } else if(rxBw == 181.1) {
+  } else if(abs(rxBw - 181.1) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 1;
     filterSet = 6;
-  } else if(rxBw == 191.5) {
+  } else if(abs(rxBw - 191.5) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 15;
-  } else if(rxBw == 225.1) {
+  } else if(abs(rxBw - 225.1) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 1;
-  } else if(rxBw == 248.8) {
+  } else if(abs(rxBw - 248.8) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 2;
-  } else if(rxBw == 269.3) {
+  } else if(abs(rxBw - 269.3) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 3;
-  } else if(rxBw == 284.8) {
+  } else if(abs(rxBw - 284.8) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 4;
-  } else if(rxBw == 335.5) {
+  } else if(abs(rxBw -335.5) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 8;
-  } else if(rxBw == 391.8) {
+  } else if(abs(rxBw - 391.8) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 9;
-  } else if(rxBw == 420.2) {
+  } else if(abs(rxBw - 420.2) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 10;
-  } else if(rxBw == 468.4) {
+  } else if(abs(rxBw - 468.4) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 11;
-  } else if(rxBw == 518.8) {
+  } else if(abs(rxBw - 518.8) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 12;
-  } else if(rxBw == 577.0) {
+  } else if(abs(rxBw - 577.0) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 13;
-  } else if(rxBw == 620.7) {
+  } else if(abs(rxBw - 620.7) <= 0.001) {
     bypass = SI443X_BYPASS_DEC_BY_3_ON;
     decRate = 0;
     filterSet = 14;
@@ -460,8 +485,24 @@ int16_t Si443x::setSyncWord(uint8_t* syncWord, size_t len) {
   return(state);
 }
 
+int16_t Si443x::setPreambleLength(uint8_t preambleLen) {
+  // Si443x configures preamble length in bytes
+  if(preambleLen % 8 != 0) {
+    return(ERR_INVALID_PREAMBLE_LENGTH);
+  }
+
+  // set default preamble length
+  uint8_t preLenBytes = preambleLen / 8;
+  int16_t state = _mod->SPIsetRegValue(SI443X_REG_PREAMBLE_LENGTH, preLenBytes);
+  RADIOLIB_ASSERT(state);
+
+  // set default preamble detection threshold to 50% of preamble length (in units of 4 bits)
+  uint8_t preThreshold = preambleLen / 4;
+  return(_mod->SPIsetRegValue(SI443X_REG_PREAMBLE_DET_CONTROL, preThreshold << 4, 7, 3));
+}
+
 size_t Si443x::getPacketLength(bool update) {
-  // TODO variable length mode
+  /// \todo variable length mode
   if(!_packetLengthQueried && update) {
     _packetLength = _mod->SPIreadRegister(SI443X_REG_RECEIVED_PACKET_LENGTH);
     _packetLengthQueried = true;
@@ -476,32 +517,63 @@ int16_t Si443x::setEncoding(uint8_t encoding) {
   RADIOLIB_ASSERT(state);
 
   // set encoding
-  // TODO - add inverted Manchester?
+  /// \todo - add inverted Manchester?
   switch(encoding) {
-    case 0:
+    case RADIOLIB_ENCODING_NRZ:
       return(_mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_1, SI443X_MANCHESTER_INVERTED_OFF | SI443X_MANCHESTER_OFF | SI443X_WHITENING_OFF, 2, 0));
-    case 1:
+    case RADIOLIB_ENCODING_MANCHESTER:
       return(_mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_1, SI443X_MANCHESTER_INVERTED_OFF | SI443X_MANCHESTER_ON | SI443X_WHITENING_OFF, 2, 0));
-    case 2:
+    case RADIOLIB_ENCODING_WHITENING:
       return(_mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_1, SI443X_MANCHESTER_INVERTED_OFF | SI443X_MANCHESTER_OFF | SI443X_WHITENING_ON, 2, 0));
     default:
       return(ERR_INVALID_ENCODING);
   }
 }
 
-int16_t Si443x::setDataShaping(float sh) {
+int16_t Si443x::setDataShaping(uint8_t sh) {
   // set mode to standby
   int16_t state = standby();
   RADIOLIB_ASSERT(state);
 
-  if(sh == 0.0) {
-    // set modulation to FSK
-    return(_mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_2, SI443X_MODULATION_FSK, 1, 0));
-  } else {
-    // set modulation to GFSK
-    // TODO implement fiter configuration - docs claim this should be possible, but seems undocumented
-    return(_mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_2, SI443X_MODULATION_GFSK, 1, 0));
+  // set data shaping
+  switch(sh) {
+    case RADIOLIB_SHAPING_NONE:
+      return(_mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_1, SI443X_MANCHESTER_INVERTED_OFF | SI443X_MANCHESTER_OFF | SI443X_WHITENING_OFF, 2, 0));
+    case RADIOLIB_SHAPING_0_3:
+    case RADIOLIB_SHAPING_0_5:
+    case RADIOLIB_SHAPING_1_0:
+      /// \todo implement fiter configuration - docs claim this should be possible, but seems undocumented
+      return(_mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_1, SI443X_MANCHESTER_INVERTED_OFF | SI443X_MANCHESTER_OFF | SI443X_WHITENING_ON, 2, 0));
+    default:
+      return(ERR_INVALID_ENCODING);
   }
+}
+
+void Si443x::setRfSwitchPins(RADIOLIB_PIN_TYPE rxEn, RADIOLIB_PIN_TYPE txEn) {
+  _mod->setRfSwitchPins(rxEn, txEn);
+}
+
+uint8_t Si443x::random() {
+  // set mode to Rx
+  _mod->SPIwriteRegister(SI443X_REG_OP_FUNC_CONTROL_1, SI443X_RX_ON | SI443X_XTAL_ON);
+
+  // wait a bit for the RSSI reading to stabilise
+  Module::delay(10);
+
+  // read RSSI value 8 times, always keep just the least significant bit
+  uint8_t randByte = 0x00;
+  for(uint8_t i = 0; i < 8; i++) {
+    randByte |= ((_mod->SPIreadRegister(SI443X_REG_RSSI) & 0x01) << i);
+  }
+
+  // set mode to standby
+  standby();
+
+  return(randByte);
+}
+
+int16_t Si443x::getChipVersion() {
+  return(_mod->SPIgetRegValue(SI443X_REG_DEVICE_VERSION));
 }
 
 int16_t Si443x::setFrequencyRaw(float newFreq) {
@@ -512,6 +584,7 @@ int16_t Si443x::setFrequencyRaw(float newFreq) {
   // check high/low band
   uint8_t bandSelect = SI443X_BAND_SELECT_LOW;
   uint8_t freqBand = (newFreq / 10) - 24;
+  _freq = newFreq;
   if(newFreq >= 480.0) {
     bandSelect = SI443X_BAND_SELECT_HIGH;
     freqBand = (newFreq / 20) - 24;
@@ -551,7 +624,7 @@ bool Si443x::findChip() {
         RADIOLIB_DEBUG_PRINT(F(", expected 0x00"));
         RADIOLIB_DEBUG_PRINTLN(SI443X_DEVICE_VERSION, HEX);
       #endif
-      delay(1000);
+      Module::delay(10);
       i++;
     }
   }
@@ -560,8 +633,8 @@ bool Si443x::findChip() {
 }
 
 void Si443x::clearIRQFlags() {
-  _mod->SPIreadRegister(SI443X_REG_INTERRUPT_STATUS_1);
-  _mod->SPIreadRegister(SI443X_REG_INTERRUPT_STATUS_2);
+  uint8_t buff[2];
+  _mod->SPIreadRegisterBurst(SI443X_REG_INTERRUPT_STATUS_1, 2, buff);
 }
 
 int16_t Si443x::config() {
@@ -570,8 +643,7 @@ int16_t Si443x::config() {
   RADIOLIB_ASSERT(state);
 
   // disable POR and chip ready interrupts
-  state = _mod->SPIsetRegValue(SI443X_REG_INTERRUPT_ENABLE_2, 0x00);
-  RADIOLIB_ASSERT(state);
+  _mod->SPIwriteRegister(SI443X_REG_INTERRUPT_ENABLE_2, 0x00);
 
   // disable packet header
   state = _mod->SPIsetRegValue(SI443X_REG_HEADER_CONTROL_2, SI443X_SYNC_WORD_TIMEOUT_ON | SI443X_HEADER_LENGTH_HEADER_NONE, 7, 4);
@@ -599,17 +671,16 @@ int16_t Si443x::updateClockRecovery() {
   uint8_t rxOsr_int = (uint8_t)rxOsr;
   uint8_t rxOsr_dec = 0;
   float rxOsr_temp = rxOsr;
-  if(rxOsr_temp - rxOsr_int >= 0.5) {
+  if((rxOsr_temp - rxOsr_int) >= 0.5) {
     rxOsr_dec |= 0x04;
     rxOsr_temp -= 0.5;
   }
-  if(rxOsr_temp - rxOsr_int >= 0.25) {
+  if((rxOsr_temp - rxOsr_int) >= 0.25) {
     rxOsr_dec |= 0x02;
     rxOsr_temp -= 0.25;
   }
-  if(rxOsr_temp - rxOsr_int >= 0.125) {
+  if((rxOsr_temp - rxOsr_int) >= 0.125) {
     rxOsr_dec |= 0x01;
-    rxOsr_temp -= 0.125;
   }
   uint16_t rxOsr_fixed = ((uint16_t)rxOsr_int << 3) | ((uint16_t)rxOsr_dec);
 
@@ -667,3 +738,5 @@ int16_t Si443x::directMode() {
   state = _mod->SPIsetRegValue(SI443X_REG_MODULATION_MODE_CONTROL_2, SI443X_MODULATION_NONE, 1, 0);
   return(state);
 }
+
+#endif

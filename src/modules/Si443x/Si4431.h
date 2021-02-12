@@ -1,7 +1,10 @@
-#ifndef _RADIOLIB_SI4431_H
+#if !defined(_RADIOLIB_SI4431_H)
 #define _RADIOLIB_SI4431_H
 
 #include "../../TypeDef.h"
+
+#if !defined(RADIOLIB_EXCLUDE_SI443X)
+
 #include "../../Module.h"
 #include "Si4432.h"
 
@@ -37,9 +40,11 @@ class Si4431: public Si4432 {
 
       \param power Transmission output power in dBm. Allowed values range from -8 to 13 dBm in 3 dBm steps.
 
+      \param preambleLen Preamble Length in bits. Defaults to 16 bits.
+
       \returns \ref status_codes
     */
-    int16_t begin(float freq = 434.0, float br = 48.0, float freqDev = 50.0, float rxBw = 181.1, int8_t power = 10);
+    int16_t begin(float freq = 434.0, float br = 48.0, float freqDev = 50.0, float rxBw = 181.1, int8_t power = 10, uint8_t preambleLen = 16);
 
     // configuration methods
 
@@ -61,5 +66,7 @@ class Si4431: public Si4432 {
   private:
 #endif
 };
+
+#endif
 
 #endif

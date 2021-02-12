@@ -1,4 +1,5 @@
 #include "SX128x.h"
+#if !defined(RADIOLIB_EXCLUDE_SX128X)
 
 SX128x::SX128x(Module* mod) : PhysicalLayer(SX128X_FREQUENCY_STEP_SIZE, SX128X_MAX_PACKET_LENGTH) {
   _mod = mod;
@@ -9,6 +10,7 @@ int16_t SX128x::begin(float freq, float bw, uint8_t sf, uint8_t cr, int8_t power
   _mod->init(RADIOLIB_USE_SPI);
   Module::pinMode(_mod->getIrq(), INPUT);
   Module::pinMode(_mod->getGpio(), INPUT);
+  RADIOLIB_DEBUG_PRINTLN(F("M\tSX128x"));
 
   // initialize LoRa modulation variables
   _bwKhz = bw;
@@ -55,11 +57,12 @@ int16_t SX128x::begin(float freq, float bw, uint8_t sf, uint8_t cr, int8_t power
   return(state);
 }
 
-int16_t SX128x::beginGFSK(float freq, uint16_t br, float freqDev, int8_t power, uint16_t preambleLength, float dataShaping) {
+int16_t SX128x::beginGFSK(float freq, uint16_t br, float freqDev, int8_t power, uint16_t preambleLength) {
   // set module properties
   _mod->init(RADIOLIB_USE_SPI);
   Module::pinMode(_mod->getIrq(), INPUT);
   Module::pinMode(_mod->getGpio(), INPUT);
+  RADIOLIB_DEBUG_PRINTLN(F("M\tSX128x"));
 
   // initialize GFSK modulation variables
   _brKbps = br;
@@ -103,22 +106,26 @@ int16_t SX128x::beginGFSK(float freq, uint16_t br, float freqDev, int8_t power, 
   state = setPreambleLength(preambleLength);
   RADIOLIB_ASSERT(state);
 
-  state = setDataShaping(dataShaping);
+  state = setDataShaping(RADIOLIB_SHAPING_0_5);
   RADIOLIB_ASSERT(state);
 
   // set publicly accessible settings that are not a part of begin method
-  uint8_t sync[] = { 0x2D, 0x01 };
+  uint8_t sync[] = { 0x12, 0xAD };
   state = setSyncWord(sync, 2);
+  RADIOLIB_ASSERT(state);
+
+  state = setEncoding(RADIOLIB_ENCODING_NRZ);
   RADIOLIB_ASSERT(state);
 
   return(state);
 }
 
-int16_t SX128x::beginBLE(float freq, uint16_t br, float freqDev, int8_t power, float dataShaping) {
+int16_t SX128x::beginBLE(float freq, uint16_t br, float freqDev, int8_t power, uint8_t dataShaping) {
   // set module properties
   _mod->init(RADIOLIB_USE_SPI);
   Module::pinMode(_mod->getIrq(), INPUT);
   Module::pinMode(_mod->getGpio(), INPUT);
+  RADIOLIB_DEBUG_PRINTLN(F("M\tSX128x"));
 
   // initialize BLE modulation variables
   _brKbps = br;
@@ -162,11 +169,12 @@ int16_t SX128x::beginBLE(float freq, uint16_t br, float freqDev, int8_t power, f
   return(state);
 }
 
-int16_t SX128x::beginFLRC(float freq, uint16_t br, uint8_t cr, int8_t power, uint16_t preambleLength, float dataShaping) {
+int16_t SX128x::beginFLRC(float freq, uint16_t br, uint8_t cr, int8_t power, uint16_t preambleLength, uint8_t dataShaping) {
   // set module properties
   _mod->init(RADIOLIB_USE_SPI);
   Module::pinMode(_mod->getIrq(), INPUT);
   Module::pinMode(_mod->getGpio(), INPUT);
+  RADIOLIB_DEBUG_PRINTLN(F("M\tSX128x"));
 
   // initialize FLRC modulation variables
   _brKbps = br;
@@ -224,7 +232,7 @@ int16_t SX128x::reset(bool verify) {
   // run the reset sequence - same as SX126x, as SX128x docs don't seem to mention this
   Module::pinMode(_mod->getRst(), OUTPUT);
   Module::digitalWrite(_mod->getRst(), LOW);
-  delay(1);
+  Module::delay(1);
   Module::digitalWrite(_mod->getRst(), HIGH);
 
   // return immediately when verification is disabled
@@ -233,7 +241,7 @@ int16_t SX128x::reset(bool verify) {
   }
 
   // set mode to standby
-  uint32_t start = millis();
+  uint32_t start = Module::millis();
   while(true) {
     // try to set mode to standby
     int16_t state = standby();
@@ -243,13 +251,13 @@ int16_t SX128x::reset(bool verify) {
     }
 
     // standby command failed, check timeout and try again
-    if(millis() - start >= 3000) {
+    if(Module::millis() - start >= 3000) {
       // timed out, possibly incorrect wiring
       return(state);
     }
 
     // wait a bit to not spam the module
-    delay(10);
+    Module::delay(10);
   }
 }
 
@@ -281,10 +289,10 @@ int16_t SX128x::transmit(uint8_t* data, size_t len, uint8_t addr) {
   RADIOLIB_ASSERT(state);
 
   // wait for packet transmission or timeout
-  uint32_t start = micros();
-  while(!digitalRead(_mod->getIrq())) {
-    yield();
-    if(micros() - start > timeout) {
+  uint32_t start = Module::micros();
+  while(!Module::digitalRead(_mod->getIrq())) {
+    Module::yield();
+    if(Module::micros() - start > timeout) {
       clearIrqStatus();
       standby();
       return(ERR_TX_TIMEOUT);
@@ -325,10 +333,10 @@ int16_t SX128x::receive(uint8_t* data, size_t len) {
   RADIOLIB_ASSERT(state);
 
   // wait for packet reception or timeout
-  uint32_t start = micros();
-  while(!digitalRead(_mod->getIrq())) {
-    yield();
-    if(micros() - start > timeout) {
+  uint32_t start = Module::micros();
+  while(!Module::digitalRead(_mod->getIrq())) {
+    Module::yield();
+    if(Module::micros() - start > timeout) {
       clearIrqStatus();
       standby();
       return(ERR_RX_TIMEOUT);
@@ -340,6 +348,9 @@ int16_t SX128x::receive(uint8_t* data, size_t len) {
 }
 
 int16_t SX128x::transmitDirect(uint32_t frf) {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, HIGH);
+
   // user requested to start transmitting immediately (required for RTTY)
   int16_t state = ERR_NONE;
   if(frf != 0) {
@@ -352,6 +363,9 @@ int16_t SX128x::transmitDirect(uint32_t frf) {
 }
 
 int16_t SX128x::receiveDirect() {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
+
   // SX128x is unable to output received data directly
   return(ERR_UNKNOWN);
 }
@@ -374,13 +388,16 @@ int16_t SX128x::scanChannel() {
   state = clearIrqStatus();
   RADIOLIB_ASSERT(state);
 
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
+
   // set mode to CAD
   state = setCad();
   RADIOLIB_ASSERT(state);
 
   // wait for channel activity detected or timeout
-  while(!digitalRead(_mod->getIrq())) {
-    yield();
+  while(!Module::digitalRead(_mod->getIrq())) {
+    Module::yield();
   }
 
   // check CAD result
@@ -399,6 +416,9 @@ int16_t SX128x::scanChannel() {
 }
 
 int16_t SX128x::sleep(bool retainConfig) {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, LOW);
+
   uint8_t sleepConfig = SX128X_SLEEP_DATA_BUFFER_RETAIN | SX128X_SLEEP_DATA_RAM_RETAIN;
   if(!retainConfig) {
     sleepConfig = SX128X_SLEEP_DATA_BUFFER_FLUSH | SX128X_SLEEP_DATA_RAM_FLUSH;
@@ -406,7 +426,7 @@ int16_t SX128x::sleep(bool retainConfig) {
   int16_t state = SPIwriteCommand(SX128X_CMD_SET_SLEEP, &sleepConfig, 1, false);
 
   // wait for SX128x to safely enter sleep mode
-  delay(1);
+  Module::delay(1);
 
   return(state);
 }
@@ -416,16 +436,19 @@ int16_t SX128x::standby() {
 }
 
 int16_t SX128x::standby(uint8_t mode) {
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, LOW);
+
   uint8_t data[] = { mode };
   return(SPIwriteCommand(SX128X_CMD_SET_STANDBY, data, 1));
 }
 
 void SX128x::setDio1Action(void (*func)(void)) {
-  attachInterrupt(digitalPinToInterrupt(_mod->getIrq()), func, RISING);
+  Module::attachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getIrq()), func, RISING);
 }
 
 void SX128x::clearDio1Action() {
-  detachInterrupt(digitalPinToInterrupt(_mod->getIrq()));
+  Module::detachInterrupt(RADIOLIB_DIGITAL_PIN_TO_INTERRUPT(_mod->getIrq()));
 }
 
 int16_t SX128x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
@@ -444,6 +467,8 @@ int16_t SX128x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
     state = setPacketParamsLoRa(_preambleLengthLoRa, _headerType, len, _crcLoRa);
   } else if((modem == SX128X_PACKET_TYPE_GFSK) || (modem == SX128X_PACKET_TYPE_FLRC)) {
     state = setPacketParamsGFSK(_preambleLengthGFSK, _syncWordLen, _syncWordMatch, _crcGFSK, _whitening, len);
+  } else if(modem == SX128X_PACKET_TYPE_BLE) {
+    state = setPacketParamsBLE(_connectionState, _crcBLE, _bleTestPayload, _whitening);
   } else {
     return(ERR_WRONG_MODEM);
   }
@@ -458,8 +483,14 @@ int16_t SX128x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
   RADIOLIB_ASSERT(state);
 
   // write packet to buffer
-  state = writeBuffer(data, len);
-  RADIOLIB_ASSERT(state);
+  if(modem == SX128X_PACKET_TYPE_BLE) {
+    // first 2 bytes of BLE payload are PDU header
+    state = writeBuffer(data, len, 2);
+    RADIOLIB_ASSERT(state);
+  } else {
+    state = writeBuffer(data, len);
+    RADIOLIB_ASSERT(state);
+  }
 
   // set DIO mapping
   state = setDioIrqParams(SX128X_IRQ_TX_DONE | SX128X_IRQ_RX_TX_TIMEOUT, SX128X_IRQ_TX_DONE);
@@ -469,13 +500,16 @@ int16_t SX128x::startTransmit(uint8_t* data, size_t len, uint8_t addr) {
   state = clearIrqStatus();
   RADIOLIB_ASSERT(state);
 
+  // set RF switch (if present)
+  _mod->setRfSwitchState(LOW, HIGH);
+
   // start transmission
   state = setTx(SX128X_TX_TIMEOUT_NONE);
   RADIOLIB_ASSERT(state);
 
   // wait for BUSY to go low (= PA ramp up done)
-  while(digitalRead(_mod->getGpio())) {
-    yield();
+  while(Module::digitalRead(_mod->getGpio())) {
+    Module::yield();
   }
 
   return(state);
@@ -504,6 +538,9 @@ int16_t SX128x::startReceive(uint16_t timeout) {
     state = setPacketParamsLoRa(_preambleLengthLoRa, _headerType, _payloadLen, _crcLoRa);
     RADIOLIB_ASSERT(state);
   }
+
+  // set RF switch (if present)
+  _mod->setRfSwitchState(HIGH, LOW);
 
   // set mode to receive
   state = setRx(timeout);
@@ -785,23 +822,26 @@ int16_t SX128x::setFrequencyDeviation(float freqDev) {
   return(setModulationParams(_br, _modIndex, _shaping));
 }
 
-int16_t SX128x::setDataShaping(float dataShaping) {
+int16_t SX128x::setDataShaping(uint8_t sh) {
   // check active modem
   uint8_t modem = getPacketType();
   if(!((modem == SX128X_PACKET_TYPE_GFSK) || (modem == SX128X_PACKET_TYPE_BLE) || (modem == SX128X_PACKET_TYPE_FLRC))) {
     return(ERR_WRONG_MODEM);
   }
 
-  // check allowed values
-  dataShaping *= 10.0;
-  if(abs(dataShaping - 0.0) <= 0.001) {
-    _shaping = SX128X_BLE_GFSK_BT_OFF;
-  } else if(abs(dataShaping - 5.0) <= 0.001) {
-    _shaping = SX128X_BLE_GFSK_BT_0_5;
-  } else if(abs(dataShaping - 10.0) <= 0.001) {
-    _shaping = SX128X_BLE_GFSK_BT_1_0;
-  } else {
-    return(ERR_INVALID_DATA_SHAPING);
+  // set data shaping
+  switch(sh) {
+    case RADIOLIB_SHAPING_NONE:
+      _shaping = SX128X_BLE_GFSK_BT_OFF;
+      break;
+    case RADIOLIB_SHAPING_0_5:
+      _shaping = SX128X_BLE_GFSK_BT_0_5;
+      break;
+    case RADIOLIB_SHAPING_1_0:
+      _shaping = SX128X_BLE_GFSK_BT_1_0;
+      break;
+    default:
+      return(ERR_INVALID_DATA_SHAPING);
   }
 
   // update modulation parameters
@@ -854,7 +894,7 @@ int16_t SX128x::setSyncWord(uint8_t* syncWord, uint8_t len) {
   if(_syncWordLen == 0) {
     _syncWordMatch = SX128X_GFSK_FLRC_SYNC_WORD_OFF;
   } else {
-    // TODO add support for multiple sync words
+    /// \todo add support for multiple sync words
     _syncWordMatch = SX128X_GFSK_FLRC_SYNC_WORD_1;
   }
   return(setPacketParamsGFSK(_preambleLengthGFSK, _syncWordLen, _syncWordMatch, _crcGFSK, _whitening));
@@ -864,7 +904,7 @@ int16_t SX128x::setCRC(uint8_t len, uint32_t initial, uint16_t polynomial) {
   // check active modem
   uint8_t modem = getPacketType();
 
-  int16_t state = ERR_NONE;
+  int16_t state;
   if((modem == SX128X_PACKET_TYPE_GFSK) || (modem == SX128X_PACKET_TYPE_FLRC)) {
     // update packet parameters
     if(modem == SX128X_PACKET_TYPE_GFSK) {
@@ -950,9 +990,9 @@ int16_t SX128x::setAccessAddress(uint32_t addr) {
     return(ERR_WRONG_MODEM);
   }
 
-  // use setSyncWord to set the address
-  uint8_t syncWord[] = { (uint8_t)((addr >> 24) & 0xFF), (uint8_t)((addr >> 16) & 0xFF), (uint8_t)((addr >> 8) & 0xFF), (uint8_t)(addr & 0xFF) };
-  return(setSyncWord(syncWord, 4));
+  // set the address
+  uint8_t addrBuff[] = { (uint8_t)((addr >> 24) & 0xFF), (uint8_t)((addr >> 16) & 0xFF), (uint8_t)((addr >> 8) & 0xFF), (uint8_t)(addr & 0xFF) };
+  return(SX128x::writeRegister(SX128X_REG_ACCESS_ADDRESS_BYTE_3, addrBuff, 4));
 }
 
 float SX128x::getRSSI() {
@@ -1001,7 +1041,7 @@ float SX128x::getSNR() {
 
 size_t SX128x::getPacketLength(bool update) {
   (void)update;
-  uint8_t rxBufStatus[2];
+  uint8_t rxBufStatus[2] = {0, 0};
   SPIreadCommand(SX128X_CMD_GET_RX_BUFFER_STATUS, rxBufStatus, 2);
   return((size_t)rxBufStatus[0]);
 }
@@ -1057,7 +1097,7 @@ uint32_t SX128x::getTimeOnAir(size_t len) {
 
     } else {
       // long interleaving - abandon hope all ye who enter here
-      // TODO implement this mess - SX1280 datasheet v3.0 section 7.4.4.2
+      /// \todo implement this mess - SX1280 datasheet v3.0 section 7.4.4.2
 
     }
 
@@ -1080,6 +1120,16 @@ int16_t SX128x::explicitHeader() {
 
 int16_t SX128x::setEncoding(uint8_t encoding) {
   return(setWhitening(encoding));
+}
+
+void SX128x::setRfSwitchPins(RADIOLIB_PIN_TYPE rxEn, RADIOLIB_PIN_TYPE txEn) {
+  _mod->setRfSwitchPins(rxEn, txEn);
+}
+
+uint8_t SX128x::random() {
+  // it's unclear whether SX128x can measure RSSI while not receiving a packet
+  // this method is implemented only for PhysicalLayer compatibility
+  return(0);
 }
 
 uint8_t SX128x::getStatus() {
@@ -1255,17 +1305,17 @@ int16_t SX128x::SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* d
   #endif
 
   // ensure BUSY is low (state machine ready)
-  uint32_t start = millis();
-  while(digitalRead(_mod->getGpio())) {
-    yield();
-    if(millis() - start >= timeout) {
-      digitalWrite(_mod->getCs(), HIGH);
+  uint32_t start = Module::millis();
+  while(Module::digitalRead(_mod->getGpio())) {
+    Module::yield();
+    if(Module::millis() - start >= timeout) {
+      Module::digitalWrite(_mod->getCs(), HIGH);
       return(ERR_SPI_CMD_TIMEOUT);
     }
   }
 
   // pull NSS low
-  digitalWrite(_mod->getCs(), LOW);
+  Module::digitalWrite(_mod->getCs(), LOW);
 
   // start transfer
   spi->beginTransaction(spiSettings);
@@ -1322,15 +1372,15 @@ int16_t SX128x::SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* d
 
   // stop transfer
   spi->endTransaction();
-  digitalWrite(_mod->getCs(), HIGH);
+  Module::digitalWrite(_mod->getCs(), HIGH);
 
   // wait for BUSY to go high and then low
   if(waitForBusy) {
-    delayMicroseconds(1);
-    start = millis();
-    while(digitalRead(_mod->getGpio())) {
-      yield();
-      if(millis() - start >= timeout) {
+    Module::delayMicroseconds(1);
+    start = Module::millis();
+    while(Module::digitalRead(_mod->getGpio())) {
+      Module::yield();
+      if(Module::millis() - start >= timeout) {
         status = SX128X_STATUS_CMD_TIMEOUT;
         break;
       }
@@ -1379,8 +1429,8 @@ int16_t SX128x::SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* d
     // some faster platforms require a short delay here
     // not sure why, but it seems that long enough SPI transaction
     // (e.g. setPacketParams for GFSK) will fail without it
-    #if defined(ARDUINO_ARCH_STM32)
-      delay(1);
+    #if defined(RADIOLIB_SPI_SLOWDOWN)
+      Module::delay(1);
     #endif
   #endif
 
@@ -1398,3 +1448,5 @@ int16_t SX128x::SPItransfer(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* d
       return(ERR_NONE);
   }
 }
+
+#endif

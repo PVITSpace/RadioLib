@@ -1,8 +1,12 @@
-#ifndef _RADIOLIB_HELLSCHREIBER_H
+#if !defined(_RADIOLIB_HELLSCHREIBER_H)
 #define _RADIOLIB_HELLSCHREIBER_H
 
 #include "../../TypeDef.h"
+
+#if !defined(RADIOLIB_EXCLUDE_HELLSCHREIBER)
+
 #include "../PhysicalLayer/PhysicalLayer.h"
+#include "../AFSK/AFSK.h"
 
 #define HELL_FONT_WIDTH                               7
 #define HELL_FONT_HEIGHT                              7
@@ -10,7 +14,7 @@
 // font definition: characters are stored in rows,
 //                  least significant byte of each character is the first row
 //                  Hellschreiber use 7x7 characters, but this simplified font uses only 5x5 - the extra bytes aren't stored
-static const uint8_t HellFont[64][HELL_FONT_WIDTH - 2] PROGMEM = {
+static const uint8_t HellFont[64][HELL_FONT_WIDTH - 2] RADIOLIB_PROGMEM = {
   { 0b0000000, 0b0000000, 0b0000000, 0b0000000, 0b0000000 },  // space
   { 0b0001000, 0b0001000, 0b0001000, 0b0000000, 0b0001000 },  // !
   { 0b0010100, 0b0010100, 0b0000000, 0b0000000, 0b0000000 },  // "
@@ -85,18 +89,27 @@ static const uint8_t HellFont[64][HELL_FONT_WIDTH - 2] PROGMEM = {
 class HellClient {
   public:
     /*!
-      \brief Default constructor.
+      \brief Constructor for 2-FSK mode.
 
       \param phy Pointer to the wireless module providing PhysicalLayer communication.
     */
-    HellClient(PhysicalLayer* phy);
+    explicit HellClient(PhysicalLayer* phy);
+
+    #if !defined(RADIOLIB_EXCLUDE_AFSK)
+    /*!
+      \brief Constructor for AFSK mode.
+
+      \param audio Pointer to the AFSK instance providing audio.
+    */
+    explicit HellClient(AFSKClient* audio);
+    #endif
 
     // basic methods
 
     /*!
       \brief Initialization method.
 
-      \param base Base RF frequency to be used in MHz.
+      \param base Base RF frequency to be used in MHz (in 2-FSK mode), or the tone frequency in Hz (in AFSK mode).
 
       \param rate Baud rate to be used during transmission. Defaults to 122.5 ("Feld Hell")
     */
@@ -126,7 +139,7 @@ class HellClient {
 
     size_t println(void);
     size_t println(__FlashStringHelper*);
-    size_t println(const String &s);
+    size_t println(const String &);
     size_t println(const char[]);
     size_t println(char);
     size_t println(unsigned char, int = DEC);
@@ -140,12 +153,20 @@ class HellClient {
   private:
 #endif
     PhysicalLayer* _phy;
+    #if !defined(RADIOLIB_EXCLUDE_AFSK)
+    AFSKClient* _audio;
+    #endif
 
-    uint32_t _base;
-    uint32_t _pixelDuration;
+    uint32_t _base = 0, _baseHz = 0;
+    uint32_t _pixelDuration = 0;
 
     size_t printNumber(unsigned long, uint8_t);
     size_t printFloat(double, uint8_t);
+
+    int16_t transmitDirect(uint32_t freq = 0, uint32_t freqHz = 0);
+    int16_t standby();
 };
+
+#endif
 
 #endif

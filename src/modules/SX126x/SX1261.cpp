@@ -1,4 +1,5 @@
 #include "SX1261.h"
+#if !defined(RADIOLIB_EXCLUDE_SX126X)
 
 SX1261::SX1261(Module* mod): SX1262(mod) {
 
@@ -17,10 +18,12 @@ int16_t SX1261::setOutputPower(int8_t power) {
   RADIOLIB_ASSERT(state);
 
   // set output power
-  // TODO power ramp time configuration
+  /// \todo power ramp time configuration
   state = SX126x::setTxParams(power);
   RADIOLIB_ASSERT(state);
 
   // restore OCP configuration
   return(writeRegister(SX126X_REG_OCP_CONFIGURATION, &ocp, 1));
 }
+
+#endif

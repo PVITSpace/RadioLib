@@ -22,6 +22,7 @@
     - Morse Code (MorseClient)
     - AX.25 (AX25Client)
     - SSTV (SSTVClient)
+    - Hellschreiber (HellClient)
   - TransportLayer protocols
     - HTTP (HTTPClient)
     - MQTT (MQTTClient)
@@ -47,6 +48,11 @@
 // check God mode
 #ifdef RADIOLIB_GODMODE
   #warning "God mode active, I hope it was intentional. Buckle up, lads."
+#endif
+
+// print debug info
+#ifdef RADIOLIB_DEBUG
+  #pragma message "RADIOLIB_PLATFORM: " RADIOLIB_PLATFORM
 #endif
 
 // check unknown/unsupported platform
@@ -85,6 +91,7 @@
 
 // physical layer protocols
 #include "protocols/PhysicalLayer/PhysicalLayer.h"
+#include "protocols/AFSK/AFSK.h"
 #include "protocols/AX25/AX25.h"
 #include "protocols/Hellschreiber/Hellschreiber.h"
 #include "protocols/Morse/Morse.h"

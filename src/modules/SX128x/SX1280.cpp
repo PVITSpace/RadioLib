@@ -1,4 +1,5 @@
 #include "SX1280.h"
+#if !defined(RADIOLIB_EXCLUDE_SX128X)
 
 SX1280::SX1280(Module* mod) : SX1281(mod) {
 
@@ -10,10 +11,10 @@ int16_t SX1280::range(bool master, uint32_t addr) {
   RADIOLIB_ASSERT(state);
 
   // wait until ranging is finished
-  uint32_t start = millis();
-  while(!digitalRead(_mod->getIrq())) {
-    yield();
-    if(millis() - start > 10000) {
+  uint32_t start = Module::millis();
+  while(!Module::digitalRead(_mod->getIrq())) {
+    Module::yield();
+    if(Module::millis() - start > 10000) {
       clearIrqStatus();
       standby();
       return(ERR_RANGING_TIMEOUT);
@@ -111,3 +112,5 @@ float SX1280::getRangingResult() {
   memcpy(&raw, data, sizeof(uint32_t));
   return((float)raw * (150.0/(4.096 * _bwKhz)));
 }
+
+#endif

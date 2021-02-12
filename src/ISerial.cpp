@@ -8,41 +8,10 @@ void ISerial::begin(long speed) {
   _mod->ModuleSerial->begin(speed);
 }
 
-bool ISerial::listen() {
-#ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
-  return true;
-#else
-  return(_mod->ModuleSerial->listen());
-#endif
-}
-
 void ISerial::end() {
   _mod->ModuleSerial->end();
 }
 
-bool ISerial::isListening() {
-#ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
-  return true;
-#else
-  return(_mod->ModuleSerial->isListening());
-#endif
-}
-
-bool ISerial::stopListening() {
-#ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
-  return true;
-#else
-  return(_mod->ModuleSerial->stopListening());
-#endif
-}
-
-bool ISerial::overflow() {
-#ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
-  return false;
-#else
-  return(_mod->ModuleSerial->overflow());
-#endif
-}
 
 int ISerial::peek() {
   return(_mod->ModuleSerial->peek());
@@ -64,9 +33,11 @@ void ISerial::flush() {
   _mod->ModuleSerial->flush();
 }
 
+#ifndef ARDUINO_ARCH_MEGAAVR
 size_t ISerial::print(const __FlashStringHelper *ifsh) {
   return(_mod->ModuleSerial->print(ifsh));
 }
+#endif
 
 size_t ISerial::print(const String &s) {
   return(_mod->ModuleSerial->print(s));
@@ -108,9 +79,11 @@ size_t ISerial::print(const Printable& x) {
   return(_mod->ModuleSerial->print(x));
 }
 
+#ifndef ARDUINO_ARCH_MEGAAVR
 size_t ISerial::println(const __FlashStringHelper *ifsh) {
   return(_mod->ModuleSerial->println(ifsh));
 }
+#endif
 
 size_t ISerial::println(const String &s) {
   return(_mod->ModuleSerial->println(s));

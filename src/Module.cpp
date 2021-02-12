@@ -1,81 +1,113 @@
 #include "Module.h"
 
-Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst) {
-  _cs = cs;
-  _rx = RADIOLIB_NC;
-  _tx = RADIOLIB_NC;
-  _irq = irq;
-  _rst = rst;
-  _spi = &SPI;
-  _spiSettings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
+Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst):
+  _cs(cs),
+  _irq(irq),
+  _rst(rst),
+  _rx(RADIOLIB_NC),
+  _tx(RADIOLIB_NC),
+  _spiSettings(SPISettings(2000000, MSBFIRST, SPI_MODE0))
+{
+  _spi = &RADIOLIB_DEFAULT_SPI;
   _initInterface = true;
+  ModuleSerial = NULL;
 }
 
-Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, RADIOLIB_PIN_TYPE gpio) {
-  _cs = cs;
-  _rx = gpio;
-  _tx = RADIOLIB_NC;
-  _irq = irq;
-  _rst = rst;
-  _spi = &SPI;
-  _spiSettings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
+Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, RADIOLIB_PIN_TYPE gpio):
+  _cs(cs),
+  _irq(irq),
+  _rst(rst),
+  _rx(gpio),
+  _tx(RADIOLIB_NC),
+  _spiSettings(SPISettings(2000000, MSBFIRST, SPI_MODE0))
+{
+  _spi = &RADIOLIB_DEFAULT_SPI;
   _initInterface = true;
+  ModuleSerial = NULL;
 }
 
-Module::Module(RADIOLIB_PIN_TYPE rx, RADIOLIB_PIN_TYPE tx, HardwareSerial* useSer, RADIOLIB_PIN_TYPE rst) {
-  _cs = RADIOLIB_NC;
-  _rx = rx;
-  _tx = tx;
-  _irq = RADIOLIB_NC;
-  _rst = rst;
+Module::Module(RADIOLIB_PIN_TYPE rx, RADIOLIB_PIN_TYPE tx, HardwareSerial* serial, RADIOLIB_PIN_TYPE rst):
+  _cs(RADIOLIB_NC),
+  _irq(RADIOLIB_NC),
+  _rst(rst),
+  _rx(rx),
+  _tx(tx),
+  _spiSettings(SPISettings(2000000, MSBFIRST, SPI_MODE0))
+{
   _initInterface = true;
 
 #ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
-  ModuleSerial = useSer;
+  ModuleSerial = serial;
 #else
   ModuleSerial = new SoftwareSerial(_rx, _tx);
-  (void)useSer;
+  (void)serial;
 #endif
 }
 
-Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, SPIClass& spi, SPISettings spiSettings) {
-  _cs = cs;
-  _rx = RADIOLIB_NC;
-  _tx = RADIOLIB_NC;
-  _irq = irq;
-  _rst = rst;
+Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, SPIClass& spi, SPISettings spiSettings):
+  _cs(cs),
+  _irq(irq),
+  _rst(rst),
+  _rx(RADIOLIB_NC),
+  _tx(RADIOLIB_NC),
+  _spiSettings(spiSettings)
+{
   _spi = &spi;
-  _spiSettings = spiSettings;
   _initInterface = false;
+  ModuleSerial = NULL;
 }
 
-Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, RADIOLIB_PIN_TYPE gpio, SPIClass& spi, SPISettings spiSettings) {
-  _cs = cs;
-  _rx = gpio;
-  _tx = RADIOLIB_NC;
-  _irq = irq;
-  _rst = rst;
+Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, RADIOLIB_PIN_TYPE gpio, SPIClass& spi, SPISettings spiSettings):
+  _cs(cs),
+  _irq(irq),
+  _rst(rst),
+  _rx(gpio),
+  _tx(RADIOLIB_NC),
+  _spiSettings(spiSettings)
+{
   _spi = &spi;
-  _spiSettings = spiSettings;
   _initInterface = false;
+  ModuleSerial = NULL;
 }
 
-Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, RADIOLIB_PIN_TYPE rx, RADIOLIB_PIN_TYPE tx, SPIClass& spi, SPISettings spiSettings, HardwareSerial* useSer) {
-  _cs = cs;
-  _rx = rx;
-  _tx = tx;
-  _irq = irq;
-  _rst = rst;
+Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst, RADIOLIB_PIN_TYPE rx, RADIOLIB_PIN_TYPE tx, SPIClass& spi, SPISettings spiSettings, HardwareSerial* serial):
+  _cs(cs),
+  _irq(irq),
+  _rst(rst),
+  _rx(rx),
+  _tx(tx),
+  _spiSettings(spiSettings)
+{
   _spi = &spi;
-  _spiSettings = spiSettings;
   _initInterface = false;
 
 #ifdef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
-  ModuleSerial = useSer;
+  ModuleSerial = serial;
 #else
   ModuleSerial = new SoftwareSerial(_rx, _tx);
-  (void)useSer;
+  (void)serial;
 #endif
+}
+
+Module::Module(const Module& mod) {
+  *this = mod;
+}
+
+Module& Module::operator=(const Module& mod) {
+  this->ModuleSerial = mod.ModuleSerial;
+  this->baudrate = mod.baudrate;
+  memcpy(this->AtLineFeed, mod.AtLineFeed, strlen(mod.AtLineFeed));
+  this->SPIreadCommand = mod.SPIreadCommand;
+  this->SPIwriteCommand = mod.SPIwriteCommand;
+  this->_cs = mod.getCs();
+  this->_irq = mod.getIrq();
+  this->_rst = mod.getRst();
+  this->_rx = mod.getRx();
+  this->_tx = mod.getTx();
+  this->_spiSettings = mod.getSpiSettings();
+  this->_spi = mod.getSpi();
+
+  return(*this);
 }
 
 void Module::init(uint8_t interface) {
@@ -102,13 +134,17 @@ void Module::init(uint8_t interface) {
   }
 }
 
-void Module::term() {
-  // stop hardware interfaces
-  if(_spi != nullptr) {
+void Module::term(uint8_t interface) {
+  // stop hardware interfaces (if they were initialized by the library)
+  if(!_initInterface) {
+    return;
+  }
+
+  if((interface == RADIOLIB_USE_SPI) && (_spi != nullptr)) {
     _spi->end();
   }
 
-  if(ModuleSerial != nullptr) {
+  if(((interface == RADIOLIB_USE_UART) && ModuleSerial != nullptr)) {
     ModuleSerial->end();
   }
 }
@@ -139,8 +175,8 @@ bool Module::ATsendData(uint8_t* data, uint32_t len) {
 bool Module::ATgetResponse() {
   char data[128];
   char* dataPtr = data;
-  uint32_t start = millis();
-  while(millis() - start < _ATtimeout) {
+  uint32_t start = Module::millis();
+  while(Module::millis() - start < _ATtimeout) {
     while(ModuleSerial->available() > 0) {
       char c = ModuleSerial->read();
       RADIOLIB_VERBOSE_PRINT(c);
@@ -182,9 +218,9 @@ int16_t Module::SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb, uint8_t 
 
   // check register value each millisecond until check interval is reached
   // some registers need a bit of time to process the change (e.g. SX127X_REG_OP_MODE)
-  uint32_t start = micros();
-  uint8_t readValue = 0;
-  while(micros() - start < (checkInterval * 1000)) {
+  uint32_t start = Module::micros();
+  uint8_t readValue = 0x00;
+  while(Module::micros() - start < (checkInterval * 1000)) {
     readValue = SPIreadRegister(reg);
     if(readValue == newValue) {
       // check passed, we can stop the loop
@@ -255,16 +291,20 @@ void Module::SPItransfer(uint8_t cmd, uint8_t reg, uint8_t* dataOut, uint8_t* da
 
   // send data or get response
   if(cmd == SPIwriteCommand) {
-    for(size_t n = 0; n < numBytes; n++) {
-      _spi->transfer(dataOut[n]);
-      RADIOLIB_VERBOSE_PRINT(dataOut[n], HEX);
-      RADIOLIB_VERBOSE_PRINT('\t');
+    if(dataOut != NULL) {
+      for(size_t n = 0; n < numBytes; n++) {
+        _spi->transfer(dataOut[n]);
+        RADIOLIB_VERBOSE_PRINT(dataOut[n], HEX);
+        RADIOLIB_VERBOSE_PRINT('\t');
+      }
     }
   } else if (cmd == SPIreadCommand) {
-    for(size_t n = 0; n < numBytes; n++) {
-      dataIn[n] = _spi->transfer(0x00);
-      RADIOLIB_VERBOSE_PRINT(dataIn[n], HEX);
-      RADIOLIB_VERBOSE_PRINT('\t');
+    if(dataIn != NULL) {
+      for(size_t n = 0; n < numBytes; n++) {
+        dataIn[n] = _spi->transfer(0x00);
+        RADIOLIB_VERBOSE_PRINT(dataIn[n], HEX);
+        RADIOLIB_VERBOSE_PRINT('\t');
+      }
     }
   }
   RADIOLIB_VERBOSE_PRINTLN();
@@ -293,4 +333,82 @@ RADIOLIB_PIN_STATUS Module::digitalRead(RADIOLIB_PIN_TYPE pin) {
     return(::digitalRead(pin));
   }
   return(LOW);
+}
+
+void Module::tone(RADIOLIB_PIN_TYPE pin, uint16_t value) {
+  if(pin == RADIOLIB_NC) {
+    return;
+  }
+
+  #if !defined(RADIOLIB_TONE_UNSUPPORTED)
+    ::tone(pin, value);
+  #else
+    #if defined(ESP32)
+      // ESP32 tone() emulation
+      ledcAttachPin(pin, RADIOLIB_TONE_ESP32_CHANNEL);
+      ledcWriteTone(RADIOLIB_TONE_ESP32_CHANNEL, value);
+    #endif
+  #endif
+}
+
+void Module::noTone(RADIOLIB_PIN_TYPE pin) {
+  if(pin == RADIOLIB_NC) {
+    return;
+  }
+
+  #if !defined(RADIOLIB_TONE_UNSUPPORTED)
+    ::noTone(pin);
+  #else
+  #if defined(ESP32)
+    ledcDetachPin(pin);
+    ledcWrite(RADIOLIB_TONE_ESP32_CHANNEL, 0);
+  #endif
+  #endif
+}
+
+void Module::attachInterrupt(RADIOLIB_PIN_TYPE interruptNum, void (*userFunc)(void), RADIOLIB_INTERRUPT_STATUS mode) {
+  ::attachInterrupt(interruptNum, userFunc, mode);
+}
+
+void Module::detachInterrupt(RADIOLIB_PIN_TYPE interruptNum) {
+  ::detachInterrupt(interruptNum);
+}
+
+void Module::yield() {
+  ::yield();
+}
+
+void Module::delay(uint32_t ms) {
+  ::delay(ms);
+}
+
+void Module::delayMicroseconds(uint32_t us) {
+  ::delayMicroseconds(us);
+}
+
+uint32_t Module::millis() {
+  return(::millis());
+}
+
+uint32_t Module::micros() {
+  return(::micros());
+}
+
+void Module::setRfSwitchPins(RADIOLIB_PIN_TYPE rxEn, RADIOLIB_PIN_TYPE txEn) {
+  _useRfSwitch = true;
+  _rxEn = rxEn;
+  _txEn = txEn;
+  Module::pinMode(rxEn, OUTPUT);
+  Module::pinMode(txEn, OUTPUT);
+}
+
+void Module::setRfSwitchState(RADIOLIB_PIN_STATUS rxPinState, RADIOLIB_PIN_STATUS txPinState) {
+  // check RF switch control is enabled
+  if(!_useRfSwitch) {
+    return;
+  }
+
+  // set pins
+  Module::digitalWrite(_rxEn, rxPinState);
+  Module::digitalWrite(_txEn, txPinState);
 }

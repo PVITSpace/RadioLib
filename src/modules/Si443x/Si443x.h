@@ -1,7 +1,10 @@
-#ifndef _RADIOLIB_SI443X_H
+#if !defined(_RADIOLIB_SI443X_H)
 #define _RADIOLIB_SI443X_H
 
 #include "../../TypeDef.h"
+
+#if !defined(RADIOLIB_EXCLUDE_SI443X)
+
 #include "../../Module.h"
 
 #include "../../protocols/PhysicalLayer/PhysicalLayer.h"
@@ -576,9 +579,11 @@ class Si443x: public PhysicalLayer {
 
       \param rxBw Receiver bandwidth in kHz.
 
+      \param preambleLen Preamble Length in bits.
+
       \returns \ref status_codes
     */
-    int16_t begin(float br, float freqDev, float rxBw);
+    int16_t begin(float br, float freqDev, float rxBw, uint8_t preambleLen);
 
     /*!
       \brief Reset method. Will reset the chip to the default state using SDN pin.
@@ -597,7 +602,7 @@ class Si443x: public PhysicalLayer {
 
       \returns \ref status_codes
     */
-    int16_t transmit(uint8_t* data, size_t len, uint8_t addr = 0);
+    int16_t transmit(uint8_t* data, size_t len, uint8_t addr = 0) override;
 
     /*!
       \brief Binary receive method. Will attempt to receive arbitrary binary data up to 64 bytes long.
@@ -609,7 +614,7 @@ class Si443x: public PhysicalLayer {
 
       \returns \ref status_codes
     */
-    int16_t receive(uint8_t* data, size_t len);
+    int16_t receive(uint8_t* data, size_t len) override;
 
     /*!
       \brief Sets the module to sleep to save power. %Module will not be able to transmit or receive any data while in sleep mode.
@@ -624,7 +629,7 @@ class Si443x: public PhysicalLayer {
 
       \returns \ref status_codes
     */
-    int16_t standby();
+    int16_t standby() override;
 
     /*!
       \brief Enables direct transmission mode. While in direct mode, the module will not be able to transmit or receive packets.
@@ -633,14 +638,14 @@ class Si443x: public PhysicalLayer {
 
       \returns \ref status_codes
     */
-    int16_t transmitDirect(uint32_t frf = 0);
+    int16_t transmitDirect(uint32_t frf = 0) override;
 
     /*!
       \brief Enables direct reception mode. While in direct mode, the module will not be able to transmit or receive packets.
 
       \returns \ref status_codes
     */
-    int16_t receiveDirect();
+    int16_t receiveDirect() override;
 
     /*!
       \brief Disables direct mode and enables packet mode, allowing the module to receive packets.
@@ -674,7 +679,7 @@ class Si443x: public PhysicalLayer {
 
       \returns \ref status_codes
     */
-    int16_t startTransmit(uint8_t* data, size_t len, uint8_t addr = 0);
+    int16_t startTransmit(uint8_t* data, size_t len, uint8_t addr = 0) override;
 
     /*!
       \brief Interrupt-driven receive method. IRQ will be activated when full valid packet is received.
@@ -692,7 +697,7 @@ class Si443x: public PhysicalLayer {
 
       \returns \ref status_codes
     */
-    int16_t readData(uint8_t* data, size_t len);
+    int16_t readData(uint8_t* data, size_t len) override;
 
     // configuration methods
 
@@ -712,7 +717,7 @@ class Si443x: public PhysicalLayer {
 
       \returns \ref status_codes
     */
-    int16_t setFrequencyDeviation(float freqDev);
+    int16_t setFrequencyDeviation(float freqDev) override;
 
     /*!
       \brief Sets receiver bandwidth. Allowed values range from 2.6 to 620.7 kHz.
@@ -732,6 +737,15 @@ class Si443x: public PhysicalLayer {
     */
     int16_t setSyncWord(uint8_t* syncWord, size_t len);
 
+    /*!
+      \brief Sets preamble length.
+
+      \param preambleLen Preamble length to be set (in bits).
+
+      \returns \ref status_codes
+    */
+    int16_t setPreambleLength(uint8_t preambleLen);
+
      /*!
       \brief Query modem for the packet length of received payload.
 
@@ -739,37 +753,63 @@ class Si443x: public PhysicalLayer {
 
       \returns Length of last received packet in bytes.
     */
-    size_t getPacketLength(bool update = true);
+    size_t getPacketLength(bool update = true) override;
 
     /*!
       \brief Sets transmission encoding. Only available in FSK mode.
+      Allowed values are RADIOLIB_ENCODING_NRZ, RADIOLIB_ENCODING_MANCHESTER and RADIOLIB_ENCODING_WHITENING.
 
-      \param encoding Encoding to be used. Set to 0 for NRZ, 1 for Manchester and 2 for whitening.
+      \param encoding Encoding to be used.
 
       \returns \ref status_codes
     */
-    int16_t setEncoding(uint8_t encoding);
+    int16_t setEncoding(uint8_t encoding) override;
 
     /*!
-      \brief Sets Gaussian filter bandwidth-time product that will be used for data shaping.
-      Allowed values are 0.3, 0.5 or 1.0. Set to 0 to disable data shaping. Only available in FSK mode with FSK modulation.
+      \brief Sets Gaussian filter bandwidth-time product that will be used for data shaping. Only available in FSK mode with FSK modulation.
+      Allowed values are RADIOLIB_SHAPING_0_3, RADIOLIB_SHAPING_0_5 or RADIOLIB_SHAPING_1_0. Set to RADIOLIB_SHAPING_NONE to disable data shaping.
 
       \param sh Gaussian shaping bandwidth-time product that will be used for data shaping
 
       \returns \ref status_codes
     */
-    int16_t setDataShaping(float sh);
+    int16_t setDataShaping(uint8_t sh) override;
+
+    /*!
+      \brief Some modules contain external RF switch controlled by two pins. This function gives RadioLib control over those two pins to automatically switch Rx and Tx state.
+      When using automatic RF switch control, DO NOT change the pin mode of rxEn or txEn from Arduino sketch!
+
+      \param rxEn RX enable pin.
+
+      \param txEn TX enable pin.
+    */
+    void setRfSwitchPins(RADIOLIB_PIN_TYPE rxEn, RADIOLIB_PIN_TYPE txEn);
+
+    /*!
+     \brief Get one truly random byte from RSSI noise.
+
+     \returns TRNG byte.
+   */
+    uint8_t random();
+
+    /*!
+     \brief Read version SPI register. Should return SI443X_DEVICE_VERSION (0x06) if Si443x is connected and working.
+
+     \returns Version register contents or \ref status_codes
+   */
+    int16_t getChipVersion();
 
 #ifndef RADIOLIB_GODMODE
   protected:
 #endif
     Module* _mod;
 
-    float _br;
-    float _freqDev;
+    float _br = 0;
+    float _freqDev = 0;
+    float _freq = 0;
 
-    size_t _packetLength;
-    bool _packetLengthQueried;
+    size_t _packetLength = 0;
+    bool _packetLengthQueried = false;
 
     int16_t setFrequencyRaw(float newFreq);
 
@@ -782,5 +822,7 @@ class Si443x: public PhysicalLayer {
     int16_t updateClockRecovery();
     int16_t directMode();
 };
+
+#endif
 
 #endif

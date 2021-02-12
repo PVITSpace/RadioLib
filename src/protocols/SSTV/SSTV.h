@@ -1,8 +1,12 @@
-#ifndef _RADIOLIB_SSTV_H
+#if !defined(_RADIOLIB_SSTV_H)
 #define _RADIOLIB_SSTV_H
 
 #include "../../TypeDef.h"
+
+#if !defined(RADIOLIB_EXCLUDE_SSTV)
+
 #include "../PhysicalLayer/PhysicalLayer.h"
+#include "../AFSK/AFSK.h"
 
 // the following implementation is based on information from
 // http://www.barberdsp.com/downloads/Dayton%20Paper.pdf
@@ -116,22 +120,48 @@ extern const SSTVMode_t PasokonP7;
 class SSTVClient {
   public:
     /*!
-      \brief Default constructor.
+      \brief Constructor for 2-FSK mode.
 
       \param phy Pointer to the wireless module providing PhysicalLayer communication.
     */
-    SSTVClient(PhysicalLayer* phy);
+    explicit SSTVClient(PhysicalLayer* phy);
+
+    #if !defined(RADIOLIB_EXCLUDE_AFSK)
+    /*!
+      \brief Constructor for AFSK mode.
+
+      \param audio Pointer to the AFSK instance providing audio.
+    */
+    explicit SSTVClient(AFSKClient* audio);
+    #endif
 
     // basic methods
 
     /*!
-      \brief Initialization method.
+      \brief Initialization method for 2-FSK.
 
-      \param base Base RF frequency to be used in MHz. In USB modulation, this corresponds to "0 Hz tone".
+      \param base Base "0 Hz tone" RF frequency to be used in MHz.
 
       \param mode SSTV mode to be used. Currently supported modes are Scottie1, Scottie2, ScottieDX, Martin1, Martin2, Wrasse, PasokonP3, PasokonP5 and PasokonP7.
+
+      \param correction Timing correction factor, used to adjust the length of timing pulses. Less than 1.0 leads to shorter timing pulses, defaults to 1.0 (no correction).
+
+      \returns \ref status_codes
     */
-    int16_t begin(float base, SSTVMode_t mode, float correction = 1.0);
+    int16_t begin(float base, const SSTVMode_t& mode, float correction = 1.0);
+
+    #if !defined(RADIOLIB_EXCLUDE_AFSK)
+    /*!
+      \brief Initialization method for AFSK.
+
+      \param mode SSTV mode to be used. Currently supported modes are Scottie1, Scottie2, ScottieDX, Martin1, Martin2, Wrasse, PasokonP3, PasokonP5 and PasokonP7.
+
+      \param correction Timing correction factor, used to adjust the length of timing pulses. Less than 1.0 leads to shorter timing pulses, defaults to 1.0 (no correction).
+
+      \returns \ref status_codes
+    */
+    int16_t begin(const SSTVMode_t& mode, float correction = 1.0);
+    #endif
 
     /*!
       \brief Sends out tone at 1900 Hz.
@@ -155,18 +185,23 @@ class SSTVClient {
 
       \returns Picture height of the currently configured SSTV mode in pixels.
     */
-    uint16_t getPictureHeight();
+    uint16_t getPictureHeight() const;
 
 #ifndef RADIOLIB_GODMODE
   private:
 #endif
     PhysicalLayer* _phy;
+    #if !defined(RADIOLIB_EXCLUDE_AFSK)
+    AFSKClient* _audio;
+    #endif
 
-    uint32_t _base;
-    SSTVMode_t _mode;
-    bool _firstLine;
+    uint32_t _base = 0;
+    SSTVMode_t _mode = Scottie1;
+    bool _firstLine = true;
 
     void tone(float freq, uint32_t len = 0);
 };
+
+#endif
 
 #endif
